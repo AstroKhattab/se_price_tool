@@ -2966,11 +2966,24 @@ function projSuggest(idx, inp) {
     });
     dd.appendChild(o);
   });
-  var cell = inp.parentElement;
-  cell.style.position = 'relative';
-  cell.appendChild(dd);
+  // Anchor to the viewport so the table's scroll container can't clip it
+  var rect = inp.getBoundingClientRect();
+  dd.style.position = 'fixed';
+  dd.style.left = rect.left + 'px';
+  var spaceBelow = window.innerHeight - rect.bottom;
+  if (spaceBelow < 200) { // open upwards if cramped
+    dd.style.bottom = (window.innerHeight - rect.top + 3) + 'px';
+    dd.style.top = 'auto';
+    dd.style.maxHeight = Math.min(260, rect.top - 12) + 'px';
+  } else {
+    dd.style.top = (rect.bottom + 3) + 'px';
+    dd.style.maxHeight = Math.min(260, spaceBelow - 12) + 'px';
+  }
+  document.body.appendChild(dd);
   _sugEl = dd; _sugIdx = idx;
 }
+// Keep the dropdown glued to its input; close if the page moves under it
+['scroll','resize'].forEach(function(ev){ window.addEventListener(ev, closeSuggest, true); });
 function closeSuggest(){ if(_sugEl){ _sugEl.remove(); _sugEl=null; _sugIdx=-1; } }
 document.addEventListener('pointerdown', function(e){ if(_sugEl && !e.target.closest('#proj-suggest') && !e.target.classList.contains('pci-part')) closeSuggest(); });
 
