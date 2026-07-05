@@ -2983,7 +2983,10 @@ function projSuggest(idx, inp) {
   _sugEl = dd; _sugIdx = idx;
 }
 // Keep the dropdown glued to its input; close if the page moves under it
-['scroll','resize'].forEach(function(ev){ window.addEventListener(ev, closeSuggest, true); });
+['scroll','resize'].forEach(function(ev){ window.addEventListener(ev, function(e){
+  if(_sugEl && e.target && e.target.nodeType===1 && _sugEl.contains(e.target)) return; // scrolling the list itself
+  closeSuggest();
+}, true); });
 function closeSuggest(){ if(_sugEl){ _sugEl.remove(); _sugEl=null; _sugIdx=-1; } }
 document.addEventListener('pointerdown', function(e){ if(_sugEl && !e.target.closest('#proj-suggest') && !e.target.classList.contains('pci-part')) closeSuggest(); });
 
