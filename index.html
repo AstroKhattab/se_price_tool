@@ -1271,7 +1271,7 @@ function initSupabase(){
 
 // Keys in the 'settings' store that are SHARED (admin writes, everyone reads).
 // Everything else in 'settings' is per-user (quotes, CAP data).
-const SHARED_SETTINGS_KEYS = new Set(['brand','filterConfig','colMapping','tabOrder',
+const SHARED_SETTINGS_KEYS = new Set(['brand','filterConfig','colMapping','tabOrder','userTabs',
   'gmi_under','gmi_over','gmi_headers_under','gmi_headers_over']);
 function isSharedKey(store,key){
   if(store==='priceData'||store==='metadata'||store==='history') return true;
@@ -1432,8 +1432,30 @@ async function postLogin(session){
   startLoad();
   await syncFromCloud();
   await bootAppData();
+  await applyUserTabAccess();
   await flushPending();
   stopLoad();
+}
+
+// ── Per-user tab access (admin decides which tabs each user sees) ──
+const USER_GATEABLE_TABS=['project','dashboard','cap'];
+async function applyUserTabAccess(){
+  if(isAdmin) return; // admin always sees everything
+  let allowed=null;
+  try{
+    const cfg=await dbGet('settings','userTabs');
+    if(cfg&&sbUser&&cfg[sbUser.id]) allowed=cfg[sbUser.id];
+  }catch(e){}
+  if(!allowed) return; // no restriction saved → all tabs
+  USER_GATEABLE_TABS.forEach(function(t){
+    if(allowed.indexOf(t)===-1){
+      const btn=document.getElementById('tab-'+t+'-btn');
+      if(btn) btn.style.display='none';
+      const page=document.getElementById('tab-'+t);
+      if(page&&page.classList.contains('active')) switchTab('search');
+    }
+  });
+  window._allowedTabs=allowed;
 }
 
 async function doSignOut(){
@@ -1484,6 +1506,7 @@ async function adminCreateUser(){
 
 async function loadUsersList(){
   const el=document.getElementById('users-list'); if(!el||!sb) return;
+  await loadUserTabsCfg();
   const {data,error}=await sb.from('profiles').select('*').order('created_at',{ascending:true});
   if(error){ el.textContent='Could not load users: '+error.message; return; }
   if(!data||!data.length){ el.textContent='No users yet.'; return; }
@@ -1495,8 +1518,29 @@ async function loadUsersList(){
       '<span class="nav-mode-badge '+(u.role==='admin'?'admin':'user')+'">'+(u.role==='admin'?'Admin':'User')+'</span>'+
       (u.disabled?'<span style="font-size:10px;color:var(--red);font-weight:700">DISABLED</span>':'')+
       (isMe?'':'<button class="btn btn-ghost btn-sm" style="min-height:36px" data-uid="'+u.id+'" data-dis="'+(u.disabled?1:0)+'" onclick="adminToggleUser(this)">'+(u.disabled?'Enable':'Disable')+'</button>')+
+      (isMe||u.role==='admin'?'':'<div style="flex-basis:100%;display:flex;gap:14px;padding:4px 0 0 2px;font-size:11px;color:var(--text3)">'+
+        '<span style="font-weight:700">Tabs:</span>'+
+        [['project','Project Pricing'],['dashboard','Dashboard'],['cap','CAP']].map(function(t){
+          const on=!userTabsCfg[u.id]||userTabsCfg[u.id].indexOf(t[0])!==-1;
+          return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' data-uid="'+u.id+'" data-tab="'+t[0]+'" onchange="adminSetUserTab(this)" style="accent-color:var(--accent)">'+t[1]+'</label>';
+        }).join('')+
+      '</div>')+
     '</div>';
   }).join('');
+}
+
+// Admin: toggle which tabs a user can see (Search is always on)
+var userTabsCfg={};
+async function loadUserTabsCfg(){ try{ userTabsCfg=(await dbGet('settings','userTabs'))||{}; }catch(e){ userTabsCfg={}; } }
+async function adminSetUserTab(cb){
+  const uid=cb.getAttribute('data-uid'), tab=cb.getAttribute('data-tab');
+  let cur=userTabsCfg[uid]||USER_GATEABLE_TABS.slice();
+  if(cb.checked){ if(cur.indexOf(tab)===-1) cur.push(tab); }
+  else cur=cur.filter(function(t){return t!==tab;});
+  userTabsCfg[uid]=cur;
+  await dbPut('settings','userTabs',userTabsCfg);
+  audit('user_tabs_changed',{user:uid,tabs:cur.join(',')});
+  toast('✓ Access updated — applies next time they open the app');
 }
 
 async function adminToggleUser(btn){
@@ -1539,6 +1583,7 @@ async function loadLogBook(){
 // TAB SWITCHING
 // ══════════════════════════════════════════════════════
 function switchTab(t){
+  if(!isAdmin&&window._allowedTabs&&USER_GATEABLE_TABS.indexOf(t)!==-1&&window._allowedTabs.indexOf(t)===-1){toast('You don\'t have access to that tab');return;}
   document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
