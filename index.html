@@ -2725,7 +2725,7 @@ function calcOneLine(partNum, qty) {
 }
 
 // ── Render the live table ──────────────────────────────
-{
+function renderProjTable() {
   var tier = document.getElementById('pj-tier').value;
   var priceCol = document.getElementById('pj-price-col').value;
   var offerLabel = (priceCol === 'best' ? 'Best' : 'RHA/BGW') + ' · ' + (tier === 'under30k' ? '<$30K' : '>$30K');
@@ -2799,7 +2799,7 @@ function calcOneLine(partNum, qty) {
   document.getElementById('proj-line-count').textContent = '(' + activeCount + ' lines)';
 }
 
-{
+function renderProjTotals() {
   var tfoot = document.getElementById('proj-tfoot');
   var active = quoteLines.filter(function(l){return l.partNum && l.partNum.trim() && l.offerPrice != null;});
   var totOffer = active.reduce(function(s,l){return s+(l.lineOffer||0);},0);
@@ -2819,7 +2819,7 @@ function calcOneLine(partNum, qty) {
     '<td></td></tr>';
 }
 
-{
+function updateProjSummary() {
   var active = quoteLines.filter(function(l){return l.partNum && l.partNum.trim() && l.offerPrice != null;});
   var totOffer = active.reduce(function(s,l){return s+(l.lineOffer||0);},0);
   var totScreen = active.reduce(function(s,l){return s+(l.lineList!=null?l.lineList:(l.lineOffer||0));},0);
