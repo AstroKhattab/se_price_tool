@@ -1674,6 +1674,7 @@ async function loadFromDB(){
   headers.forEach((h,i)=>{if(!Object.values(colMap).includes(i)&&h)displayCols.push({key:'x_'+i,label:h,idx:i,type:'text',essential:false,visible:false})});
   filterState={};
   resetPB1Cache();
+  if(typeof resetPartsIndex==='function') resetPartsIndex();
   initSearchUI();doSearch();
   // Trigger col mapping auto-detect
   setTimeout(function(){if(typeof onPriceFileLoaded==='function')onPriceFileLoaded();},100);
@@ -2681,9 +2682,10 @@ openDB().then(async()=>{
 
 // lookupGMIExact replaced by new version in col mapping block
 
-function calcOneLine(partNum, qty) {
+function calcOneLine(partNum, qty, priceMode, manualPrice) {
+  priceMode = priceMode || 'auto';
   if (!partNum || !partNum.trim()) {
-    return { partNum: partNum||'', qty: qty||1, desc: '', listPrice: null, gmiPrice: null, offerPrice: null, matchType: '', discPct: null, lineList: null, lineOffer: null, saving: null, savePct: null };
+    return { partNum: partNum||'', qty: qty||1, desc: '', listPrice: null, gmiPrice: null, offerPrice: null, matchType: '', discPct: null, lineList: null, lineOffer: null, saving: null, savePct: null, priceMode: priceMode, manualPrice: manualPrice!=null?manualPrice:null };
   }
   var tierRaw = document.getElementById('pj-tier').value;  // 'under30k' or 'over30k'
   var tier = tierRaw === 'over30k' ? 'over' : 'under';      // 'under' or 'over'
@@ -2703,7 +2705,13 @@ function calcOneLine(partNum, qty) {
   if (gmiPrice !== null && colMapping.gmiGst === 'excl') gmiPrice = gmiPrice * 1.1;
 
   var offerPrice = null, matchType = '';
-  if (gmiPrice !== null) {
+  if (priceMode === 'screen' && listPrice !== null) {
+    offerPrice = listPrice;
+    matchType = 'screen';
+  } else if (priceMode === 'manual' && manualPrice != null && !isNaN(manualPrice)) {
+    offerPrice = manualPrice;
+    matchType = 'manual';
+  } else if (gmiPrice !== null) {
     offerPrice = gmiPrice;
     matchType = 'gmi';
   } else if (listPrice !== null) {
@@ -2720,7 +2728,8 @@ function calcOneLine(partNum, qty) {
     partNum: partNum, qty: qty, desc: desc,
     listPrice: listPrice, gmiPrice: gmiPrice, offerPrice: offerPrice,
     matchType: matchType, discPct: matchType === 'discount' ? discPct : null,
-    lineList: lineList, lineOffer: lineOffer, saving: saving, savePct: savePct
+    lineList: lineList, lineOffer: lineOffer, saving: saving, savePct: savePct,
+    priceMode: priceMode, manualPrice: priceMode==='manual' ? offerPrice : (manualPrice!=null?manualPrice:null)
   };
 }
 
@@ -2745,6 +2754,8 @@ function renderProjTable() {
     if (!isEmpty) {
       if (l.matchType === 'gmi') statusDot = ' <span style="font-size:9px;font-weight:700;color:var(--accent-dark);background:var(--accent-light);padding:1px 5px;border-radius:3px;border:1px solid var(--accent-mid)">GMI</span>';
       else if (l.matchType === 'discount') statusDot = ' <span style="font-size:9px;font-weight:700;color:#c2410c;background:#fff7ed;padding:1px 5px;border-radius:3px;border:1px solid #fed7aa">DISC '+(l.discPct!=null?l.discPct+'%':'')+'</span>';
+      else if (l.matchType === 'screen') statusDot = ' <span style="font-size:9px;font-weight:700;color:#1d4ed8;background:#eff6ff;padding:1px 5px;border-radius:3px;border:1px solid #bfdbfe">SCREEN</span>';
+      else if (l.matchType === 'manual') statusDot = ' <span style="font-size:9px;font-weight:700;color:#7e22ce;background:#f3e8ff;padding:1px 5px;border-radius:3px;border:1px solid #e9d5ff">MANUAL</span>';
       else statusDot = ' <span style="font-size:9px;font-weight:700;color:var(--red);background:#fef2f2;padding:1px 5px;border-radius:3px;border:1px solid #fecaca" title="Not found in the price file or GMI — check the part number">NOT FOUND</span>';
     }
 
@@ -2766,7 +2777,7 @@ function renderProjTable() {
       '<td style="color:var(--text4);font-size:11px;text-align:center;padding:5px 6px;width:32px">' + (i + 1) + '</td>' +
       '<td style="padding:5px 8px">' +
         '<div style="display:flex;align-items:center;gap:4px">' +
-          '<input class="proj-cell-input pci-part" data-idx="' + i + '" value="' + escH(l.partNum) + '" placeholder="Type part number…" onchange="onPartChange(' + i + ',this.value)">' +
+          '<input class="proj-cell-input pci-part" data-idx="' + i + '" value="' + escH(l.partNum) + '" placeholder="Type part number…" autocomplete="off" oninput="projSuggest(' + i + ',this)" onchange="if(!_sugEl)onPartChange(' + i + ',this.value)" onblur="var s=this,v=this.value;setTimeout(function(){if(!_sugEl&&quoteLines['+i+']&&quoteLines['+i+'].partNum!==v.trim())onPartChange('+i+',v);},180)">' +
           statusDot +
         '</div>' +
         (l.desc && !isEmpty ? '<div style="font-size:10px;color:var(--text4);padding:1px 0 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px" title="' + escH(l.desc) + '">' + escH(l.desc.substring(0, 40)) + (l.desc.length > 40 ? '…' : '') + '</div>' : '') +
@@ -2780,8 +2791,16 @@ function renderProjTable() {
       '<td style="text-align:right;font-size:12px;padding:5px 10px;width:110px;color:' + (l.matchType==='gmi' ? 'var(--blue)' : 'var(--text4)') + '">' +
         (isEmpty ? '' : (l.gmiPrice != null ? '$' + fmtNum(l.gmiPrice) : '<span style="font-size:10px">not in GMI</span>')) +
       '</td>' +
-      '<td style="text-align:right;font-weight:700;font-size:13px;color:' + (isEmpty ? 'var(--text4)' : 'var(--accent-dark)') + ';padding:5px 10px;width:110px">' +
-        (isEmpty ? '' : (l.offerPrice != null ? '$' + fmtNum(l.offerPrice) : '')) +
+      '<td style="text-align:right;padding:5px 10px;width:130px">' +
+        (isEmpty ? '' :
+          ((l.priceMode === 'manual')
+            ? '<input class="proj-cell-input pci-manual" data-idx="' + i + '" value="' + (l.offerPrice != null ? l.offerPrice.toFixed(2) : '') + '" style="width:82px;text-align:right;font-weight:700;color:#7e22ce;border-color:#e9d5ff;background:#faf5ff" onchange="onManualPrice(' + i + ',this.value)">'
+            : '<span style="font-weight:700;font-size:13px;color:var(--accent-dark)">' + (l.offerPrice != null ? '$' + fmtNum(l.offerPrice) : '') + '</span>') +
+          '<br><select onchange="onPriceModeChange(' + i + ',this.value)" style="font-size:9px;font-family:var(--font);color:var(--text4);border:1px solid var(--border);border-radius:3px;background:var(--bg2);padding:1px 2px;margin-top:2px;max-width:92px">' +
+            '<option value="auto"' + ((!l.priceMode || l.priceMode === 'auto') ? ' selected' : '') + '>Auto (GMI/disc)</option>' +
+            '<option value="screen"' + (l.priceMode === 'screen' ? ' selected' : '') + '>Screen price</option>' +
+            '<option value="manual"' + (l.priceMode === 'manual' ? ' selected' : '') + '>Manual…</option>' +
+          '</select>') +
       '</td>' +
       '<td style="text-align:right;padding:5px 10px;width:110px">' + discCell + '</td>' +
       '<td style="text-align:right;font-weight:700;font-size:13px;padding:5px 10px;width:120px">' +
@@ -2827,7 +2846,7 @@ function updateProjSummary() {
   var totDiscPct = totScreen > 0 ? totDisc/totScreen*100 : 0;
   var typed = quoteLines.filter(function(l){return l.partNum && l.partNum.trim();});
   var gmiN = typed.filter(function(l){return l.matchType==='gmi';}).length;
-  var discN = typed.filter(function(l){return l.matchType==='discount';}).length;
+  var discN = typed.filter(function(l){return l.matchType==='discount'||l.matchType==='screen'||l.matchType==='manual';}).length;
   var nfN = typed.filter(function(l){return l.matchType==='' || !l.matchType;}).length;
   function setEl(id,v){var e=document.getElementById(id);if(e)e.textContent=v;}
   setEl('ps-items', typed.length);
@@ -2846,24 +2865,114 @@ function updateProjSummary() {
 function onPartChange(idx, val) {
   val = val.trim();
   if (!quoteLines[idx]) return;
-  quoteLines[idx].partNum = val;
-  if (val) {
-    var updated = calcOneLine(val, quoteLines[idx].qty);
-    quoteLines[idx] = updated;
-    quoteLines[idx].partNum = val; // keep as typed
-  }
+  var prev = quoteLines[idx];
+  quoteLines[idx] = calcOneLine(val, prev.qty, prev.priceMode, prev.manualPrice);
+  quoteLines[idx].partNum = val; // keep as typed
   renderProjTable();
 }
 
 function onQtyChange(idx, val) {
   var q = Math.max(1, parseInt(val) || 1);
   if (!quoteLines[idx]) return;
-  quoteLines[idx].qty = q;
-  var updated = calcOneLine(quoteLines[idx].partNum, q);
-  quoteLines[idx] = updated;
-  quoteLines[idx].partNum = updated.partNum;
+  var prev = quoteLines[idx];
+  quoteLines[idx] = calcOneLine(prev.partNum, q, prev.priceMode, prev.manualPrice);
   renderProjTable();
 }
+
+// Per-line pricing mode: auto (GMI/discount) | screen | manual
+function onPriceModeChange(idx, mode) {
+  if (!quoteLines[idx]) return;
+  var l = quoteLines[idx];
+  l.priceMode = mode;
+  if (mode === 'manual' && l.manualPrice == null) l.manualPrice = l.offerPrice; // seed with current
+  quoteLines[idx] = calcOneLine(l.partNum, l.qty, mode, l.manualPrice);
+  renderProjTable();
+  if (mode === 'manual') {
+    setTimeout(function(){ var inp=document.querySelector('.pci-manual[data-idx="'+idx+'"]'); if(inp){inp.focus();inp.select();} },50);
+  }
+}
+function onManualPrice(idx, val) {
+  if (!quoteLines[idx]) return;
+  var p = parseFloat(String(val).replace(/[^0-9.]/g,''));
+  if (isNaN(p) || p < 0) { toast('Enter a valid price'); renderProjTable(); return; }
+  var l = quoteLines[idx];
+  l.manualPrice = p;
+  quoteLines[idx] = calcOneLine(l.partNum, l.qty, 'manual', p);
+  renderProjTable();
+}
+
+// ── Excel-style autocomplete for part number inputs ──
+var _partsIndex = null;
+function buildPartsIndex(){
+  if (_partsIndex) return _partsIndex;
+  _partsIndex = [];
+  var seen = {};
+  var pi = colMapping.partCol >= 0 ? colMapping.partCol : colMap['part_number'];
+  var di = colMapping.descCol >= 0 ? colMapping.descCol : colMap['description'];
+  if (pi != null && pi >= 0 && allRows && allRows.length) {
+    for (var i = 0; i < allRows.length; i++) {
+      var p = (allRows[i][pi] || '').toString().trim();
+      if (!p || seen[p]) continue;
+      seen[p] = 1;
+      _partsIndex.push({ p: p, u: p.toUpperCase(), d: di!=null&&di>=0 ? (allRows[i][di]||'').toString().trim() : '' });
+    }
+  }
+  // Include GMI-only codes too
+  ['under','over'].forEach(function(t){
+    (gmiData[t]||[]).forEach(function(g){
+      if (g.codeRaw && !seen[g.codeRaw]) { seen[g.codeRaw]=1; _partsIndex.push({p:g.codeRaw,u:g.code,d:'(GMI '+t+')'}); }
+    });
+  });
+  return _partsIndex;
+}
+function resetPartsIndex(){ _partsIndex = null; }
+
+var _sugEl = null, _sugIdx = -1;
+function projSuggest(idx, inp) {
+  var q = inp.value.trim().toUpperCase();
+  closeSuggest();
+  if (q.length < 2) return;
+  var list = buildPartsIndex();
+  var starts = [], contains = [];
+  for (var i = 0; i < list.length && (starts.length + contains.length) < 400; i++) {
+    if (list[i].u.indexOf(q) === 0) starts.push(list[i]);
+    else if (list[i].u.indexOf(q) !== -1) contains.push(list[i]);
+  }
+  var hits = starts.concat(contains).slice(0, 12);
+  if (!hits.length) return;
+  var dd = document.createElement('div');
+  dd.className = 'picker-dropdown open';
+  dd.id = 'proj-suggest';
+  dd.style.cssText = 'width:300px;max-height:260px;z-index:500';
+  hits.forEach(function(h){
+    var o = document.createElement('div');
+    o.className = 'picker-opt';
+    o.style.cssText = 'display:block;padding:9px 10px';
+    var codeEl = document.createElement('div');
+    codeEl.style.cssText = 'font-weight:700;color:var(--blue);font-size:12px';
+    codeEl.textContent = h.p;
+    o.appendChild(codeEl);
+    if (h.d) {
+      var dEl = document.createElement('div');
+      dEl.style.cssText = 'font-size:10px;color:var(--text4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      dEl.textContent = h.d.substring(0, 60);
+      o.appendChild(dEl);
+    }
+    // pointerdown fires before the input's blur/change → selection wins
+    o.addEventListener('pointerdown', function(e){
+      e.preventDefault();
+      closeSuggest();
+      onPartChange(idx, h.p);
+    });
+    dd.appendChild(o);
+  });
+  var cell = inp.parentElement;
+  cell.style.position = 'relative';
+  cell.appendChild(dd);
+  _sugEl = dd; _sugIdx = idx;
+}
+function closeSuggest(){ if(_sugEl){ _sugEl.remove(); _sugEl=null; _sugIdx=-1; } }
+document.addEventListener('pointerdown', function(e){ if(_sugEl && !e.target.closest('#proj-suggest') && !e.target.classList.contains('pci-part')) closeSuggest(); });
 
 function recalcAllRows() {
   // Update GMI header label
@@ -2872,8 +2981,8 @@ function recalcAllRows() {
   var priceCol = document.getElementById('pj-price-col').value;
   for (var i = 0; i < quoteLines.length; i++) {
     if (quoteLines[i].partNum.trim()) {
-      var updated = calcOneLine(quoteLines[i].partNum, quoteLines[i].qty);
-      quoteLines[i] = updated;
+      var prev = quoteLines[i];
+      quoteLines[i] = calcOneLine(prev.partNum, prev.qty, prev.priceMode, prev.manualPrice);
     }
   }
   renderProjTable();
@@ -2881,7 +2990,7 @@ function recalcAllRows() {
 }
 
 function addQuoteRow() {
-  quoteLines.push({ partNum: '', qty: 1, desc: '', listPrice: null, gmiPrice: null, offerPrice: null, matchType: '', lineList: null, lineOffer: null, saving: null, savePct: null });
+  quoteLines.push({ partNum: '', qty: 1, desc: '', listPrice: null, gmiPrice: null, offerPrice: null, matchType: '', lineList: null, lineOffer: null, saving: null, savePct: null, priceMode: 'auto', manualPrice: null });
   renderProjTable();
   // Focus the new part number input
   setTimeout(function () {
@@ -2988,7 +3097,7 @@ function updateGMIStatusBadges() {
 function initProjTable() {
   // Start with ONE empty row ready for input — not 5
   if (!quoteLines.length) {
-    quoteLines.push({ partNum: '', qty: 1, desc: '', listPrice: null, gmiPrice: null, offerPrice: null, matchType: '', lineList: null, lineOffer: null, saving: null, savePct: null });
+    quoteLines.push({ partNum: '', qty: 1, desc: '', listPrice: null, gmiPrice: null, offerPrice: null, matchType: '', lineList: null, lineOffer: null, saving: null, savePct: null, priceMode: 'auto', manualPrice: null });
   }
   renderProjTable();
   updateGMIStatusBadges();
