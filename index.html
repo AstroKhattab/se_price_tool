@@ -2777,7 +2777,7 @@ function renderProjTable() {
       '<td style="color:var(--text4);font-size:11px;text-align:center;padding:5px 6px;width:32px">' + (i + 1) + '</td>' +
       '<td style="padding:5px 8px">' +
         '<div style="display:flex;align-items:center;gap:4px">' +
-          '<input class="proj-cell-input pci-part" data-idx="' + i + '" value="' + escH(l.partNum) + '" placeholder="Type part number…" autocomplete="off" oninput="projSuggest(' + i + ',this)" onchange="if(!_sugEl)onPartChange(' + i + ',this.value)" onblur="var s=this,v=this.value;setTimeout(function(){if(!_sugEl&&quoteLines['+i+']&&quoteLines['+i+'].partNum!==v.trim())onPartChange('+i+',v);},180)">' +
+          '<input class="proj-cell-input pci-part" data-idx="' + i + '" value="' + escH(l.partNum) + '" placeholder="Type part number…" autocomplete="off" oninput="projSuggest(' + i + ',this)" onchange="if(!_sugEl&&Date.now()-_sugPickedAt>500)onPartChange(' + i + ',this.value)" onblur="var v=this.value;setTimeout(function(){if(!_sugEl&&Date.now()-_sugPickedAt>500&&quoteLines['+i+']&&quoteLines['+i+'].partNum!==v.trim())onPartChange('+i+',v);},180)">' +
           statusDot +
         '</div>' +
         (l.desc && !isEmpty ? '<div style="font-size:10px;color:var(--text4);padding:1px 0 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px" title="' + escH(l.desc) + '">' + escH(l.desc.substring(0, 40)) + (l.desc.length > 40 ? '…' : '') + '</div>' : '') +
@@ -2927,7 +2927,7 @@ function buildPartsIndex(){
 }
 function resetPartsIndex(){ _partsIndex = null; }
 
-var _sugEl = null, _sugIdx = -1;
+var _sugEl = null, _sugIdx = -1, _sugPickedAt = 0;
 function projSuggest(idx, inp) {
   var q = inp.value.trim().toUpperCase();
   closeSuggest();
@@ -2961,6 +2961,7 @@ function projSuggest(idx, inp) {
     // pointerdown fires before the input's blur/change → selection wins
     o.addEventListener('pointerdown', function(e){
       e.preventDefault();
+      _sugPickedAt = Date.now();   // suppress the input's own blur/change overwrite
       closeSuggest();
       onPartChange(idx, h.p);
     });
