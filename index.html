@@ -688,7 +688,6 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
       <button class="tab-btn active" id="tab-search-btn" onclick="switchTab('search')">🔍 Search</button>
       <button class="tab-btn" id="tab-admin-btn" onclick="requireAdmin('admin')" style="display:none">⚙️ Admin <span class="tab-dot" id="admin-dot"></span></button>
       <button class="tab-btn" id="tab-project-btn" onclick="switchTab('project')">📋 Project Pricing</button>
-      <button class="tab-btn" id="tab-dashboard-btn" onclick="switchTab('dashboard')">📊 Dashboard</button>
       <button class="tab-btn" id="tab-stip-btn" onclick="switchTab('stip')">💰 STIP</button>
       <button class="tab-btn" id="tab-cap-btn" onclick="switchTab('cap')">👥 CAP</button>
     </div>
@@ -1482,7 +1481,7 @@ async function postLogin(session){
 }
 
 // ── Per-user tab access (admin decides which tabs each user sees) ──
-const USER_GATEABLE_TABS=['project','dashboard','cap','stip'];
+const USER_GATEABLE_TABS=['project','cap','stip'];
 async function applyUserTabAccess(){
   if(isAdmin) return; // admin always sees everything
   let allowed=null;
@@ -1564,7 +1563,7 @@ async function loadUsersList(){
       (isMe?'':'<button class="btn btn-ghost btn-sm" style="min-height:36px" data-uid="'+u.id+'" data-dis="'+(u.disabled?1:0)+'" onclick="adminToggleUser(this)">'+(u.disabled?'Enable':'Disable')+'</button>')+
       (isMe||u.role==='admin'?'':'<div style="flex-basis:100%;display:flex;gap:14px;padding:4px 0 0 2px;font-size:11px;color:var(--text3)">'+
         '<span style="font-weight:700">Tabs:</span>'+
-        [['project','Project Pricing'],['dashboard','Dashboard'],['cap','CAP'],['stip','STIP']].map(function(t){
+        [['project','Project Pricing'],['cap','CAP'],['stip','STIP']].map(function(t){
           const on=!userTabsCfg[u.id]||userTabsCfg[u.id].indexOf(t[0])!==-1;
           return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' data-uid="'+u.id+'" data-tab="'+t[0]+'" onchange="adminSetUserTab(this)" style="accent-color:var(--accent)">'+t[1]+'</label>';
         }).join('')+
@@ -1632,9 +1631,8 @@ function switchTab(t){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
   document.getElementById('tab-'+t+'-btn').classList.add('active');
-  if(t==='dashboard') loadAllQuotes();
   if(t==='project'){ loadQlPrefs().then(function(){ return loadAllQuotes(); }).then(function(){ renderQuoteList(); }); }
-  if(t==='cap') renderCAP();
+  if(t==='cap'){ renderCAP(); renderCAPDashboard(); }
   if(t==='stip') stipInit();
 }
 
@@ -3643,6 +3641,67 @@ async function loadSavedGMI(){
       <button class="btn btn-green" onclick="openQuoteForm(null)">＋ New Quote</button>
     </div>
   </div>
+  <div style="margin-bottom:8px">
+  <!-- ── Sales Performance ── -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text4);margin-bottom:10px">💰 Sales Performance</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+
+    <div class="dash-kpi total" style="border-top:3px solid var(--blue)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:var(--blue)">TOTAL QUOTED</span>
+        <span style="font-size:10px;color:var(--text4)">All quotes</span>
+      </div>
+      <div class="dash-kpi-val" id="dk-total" style="font-size:32px;color:var(--blue);text-align:left">0</div>
+      <div id="dk-quoted-val" style="font-size:14px;font-weight:700;color:var(--text3);margin-top:4px;text-align:left">$0.00</div>
+    </div>
+
+    <div class="dash-kpi win" style="border-top:3px solid #16a34a">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:#16a34a">✅ WON</span>
+        <span style="font-size:10px;color:var(--text4)">Closed wins</span>
+      </div>
+      <div class="dash-kpi-val" id="dk-win" style="font-size:32px;color:#16a34a;text-align:left">0</div>
+      <div id="dk-won-val" style="font-size:14px;font-weight:700;color:#16a34a;margin-top:4px;text-align:left">$0.00</div>
+    </div>
+
+    <div class="dash-kpi loss" style="border-top:3px solid var(--red)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:var(--red)">❌ LOST</span>
+        <span style="font-size:10px;color:var(--text4)">Closed losses</span>
+      </div>
+      <div class="dash-kpi-val" id="dk-loss" style="font-size:32px;color:var(--red);text-align:left">0</div>
+      <div id="dk-lost-val" style="font-size:14px;font-weight:700;color:var(--red);margin-top:4px;text-align:left">$0.00</div>
+    </div>
+
+    <div class="dash-kpi" style="border-top:3px solid #d97706">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:#d97706">⏳ IN PIPELINE</span>
+        <span style="font-size:10px;color:var(--text4)">Open + Follow up</span>
+      </div>
+      <div class="dash-kpi-val" id="dk-open" style="font-size:32px;color:#d97706;text-align:left">0</div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <span id="dk-follow" style="font-size:12px;font-weight:700;color:#d97706"></span>
+        <div id="dk-pipeline-val" style="font-size:14px;font-weight:700;color:var(--text3)">$0.00</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Sales charts row -->
+  <div class="dash-charts-row" style="margin-bottom:24px">
+    <div class="dash-chart-card">
+      <div class="dash-chart-title">Quote Status</div>
+      <div class="pie-wrap">
+        <svg class="pie-svg" id="dash-pie" width="120" height="120" viewBox="0 0 120 120"></svg>
+        <div class="pie-legend" id="dash-pie-legend"></div>
+      </div>
+    </div>
+    <div class="dash-chart-card">
+      <div class="dash-chart-title">Offer Value by Status</div>
+      <div class="val-bar-row" id="dash-val-bars"></div>
+    </div>
+  </div>
+  </div>
   <div class="dash-filter-row">
     <input type="text" id="ql-search" placeholder="Search quote #, project, contractor, wholesaler…" oninput="renderQuoteList()" style="width:260px">
     <select id="ql-status" onchange="renderQuoteList()">
@@ -3798,23 +3857,96 @@ async function loadSavedGMI(){
 </div>
 </div>
 
-<!-- ══ DASHBOARD TAB ══ -->
-<div class="tab-page" id="tab-dashboard">
+<!-- ══ STIP TAB ══ -->
+<div class="tab-page" id="tab-stip">
 <div class="dash-wrap">
-
-  <!-- Header -->
   <div class="proj-header">
-    <div>
-      <div class="proj-title">📊 My Dashboard <span>Sales performance &amp; activity overview — all in one page</span></div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button class="btn btn-ghost btn-sm" onclick="switchTab('project')">+ New Quote</button>
-      <button class="btn btn-ghost btn-sm" onclick="switchTab('cap')">+ Log Activity</button>
-      <button class="btn btn-green btn-sm" onclick="dashExport()">⬇ Export Quotes</button>
+    <div><div class="proj-title">💰 STIP Bonus Calculator <span>Quarterly lodgments, payout curve, year-end true-up</span></div></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;color:var(--text3)">Year</label>
+      <select class="proj-select" id="stip-year" style="width:auto" onchange="stipYearChanged()"></select>
+      <button class="btn btn-ghost btn-sm" onclick="var s=document.getElementById('stip-settings');s.style.display=s.style.display==='none'?'':'none'">⚙️ My Setup</button>
     </div>
   </div>
 
-  <!-- ── SECTION 1: SALES ── -->
+  <!-- Settings -->
+  <div class="acard" id="stip-settings" style="display:none">
+    <div class="acard-title">⚙️ My Setup <span style="font-size:11px;font-weight:400;color:var(--text4)">private to you — saved per year</span></div>
+    <div class="stip-row5">
+      <div class="proj-field"><label>Salary — before April ($)</label><input type="number" class="proj-input" id="st-prevsalary" placeholder="e.g. 92500" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Salary — from April ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 96200" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Raise effective from</label><select class="proj-select" id="st-raiseq" onchange="stipSaveConfig()"><option value="1">Q1</option><option value="2">Q2 (April)</option><option value="3">Q3</option><option value="4">Q4</option></select></div>
+      <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 40" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Tax on bonus (%)</label><input type="number" class="proj-input" id="st-tax" value="32.73" step="0.01" onchange="stipSaveConfig()"></div>
+    </div>
+    <div class="stip-row4">
+      <div class="proj-field"><label>Super rate (%)</label><input type="number" class="proj-input" id="st-super" value="12" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Super treatment</label><select class="proj-select" id="st-supermode" onchange="stipSaveConfig()"><option value="ontop">Added on top</option><option value="carve">Carved out</option></select></div>
+      <div class="proj-field"><label>Zero-payout floor (%)</label><input type="number" class="proj-input" id="st-floor" value="75" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Max stretch (%)</label><input type="number" class="proj-input" id="st-cap" value="125" onchange="stipSaveConfig()"></div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--text3);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.05em">KPIs — names &amp; weight of the bonus</div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:520px">
+      <div class="stip-kpi-row">
+        <div class="stip-kpi-num">1</div>
+        <div class="proj-field"><label>KPI 1 name</label><input class="proj-input" id="st-k1name" placeholder="e.g. Sales" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
+      </div>
+      <div class="stip-kpi-row">
+        <div class="stip-kpi-num">2</div>
+        <div class="proj-field"><label>KPI 2 name</label><input class="proj-input" id="st-k2name" placeholder="e.g. Margin" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
+      </div>
+      <div class="stip-kpi-row">
+        <div class="stip-kpi-num">3</div>
+        <div class="proj-field"><label>KPI 3 name</label><input class="proj-input" id="st-k3name" placeholder="e.g. CAP calls" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
+      </div>
+    </div>
+    <div id="st-config-status" style="font-size:12px;color:var(--accent-dark);margin-top:8px;min-height:16px"></div>
+  </div>
+
+  <!-- Headline cards -->
+  <div class="dash-kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+    <div class="dash-kpi money"><div class="dash-kpi-val" id="st-hd-target">—</div><div class="dash-kpi-lbl">Annual bonus target</div></div>
+    <div class="dash-kpi win"><div class="dash-kpi-val" id="st-hd-paid">—</div><div class="dash-kpi-lbl">Paid so far (gross)</div></div>
+    <div class="dash-kpi total"><div class="dash-kpi-val" id="st-hd-annual">—</div><div class="dash-kpi-lbl">Year-end entitlement</div></div>
+    <div class="dash-kpi follow"><div class="dash-kpi-val" id="st-hd-trueup">—</div><div class="dash-kpi-lbl">Year-end true-up</div></div>
+  </div>
+
+  <!-- Quarter entry cards -->
+  <div id="stip-quarters" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:20px"></div>
+
+  <!-- Projection -->
+  <div class="acard" id="stip-projection-card">
+    <div class="acard-title">🎯 Path to Full Bonus <span style="font-size:11px;font-weight:400;color:var(--text4)">what you need in the remaining quarters to reach 100% on every KPI for the year</span></div>
+    <div id="stip-projection-body" style="font-size:13px;color:var(--text2)"></div>
+  </div>
+
+  <!-- Year-end reconciliation -->
+  <div class="acard" id="stip-annual-card">
+    <div class="acard-title">🧮 Year-End True-Up</div>
+    <div id="stip-annual-body" style="font-size:13px;color:var(--text2)"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="dash-charts-row" style="grid-template-columns:1fr 1fr">
+    <div class="dash-chart-card">
+      <div class="dash-chart-title">Quarterly payout (gross $)</div>
+      <div id="stip-chart-quarters" style="display:flex;align-items:flex-end;gap:14px;height:130px;padding:6px 4px 22px"></div>
+    </div>
+    <div class="dash-chart-card">
+      <div class="dash-chart-title">KPI achievement — full year</div>
+      <div class="val-bar-row" id="stip-chart-kpis"></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══ CAP TAB ══ -->
+<div class="tab-page" id="tab-cap">
+<div class="cap-wrap" style="max-width:none;padding:16px 24px 0">
   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text4);margin-bottom:10px">👥 CAP Activity — <span id="dash-cap-year" style="font-weight:400;color:var(--text4)">This Year</span></div>
 
   <!-- CAP KPI row -->
@@ -3912,164 +4044,8 @@ async function loadSavedGMI(){
     </div>
 
   </div>
-
-
-  <!-- ── Sales Performance ── -->
-  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text4);margin-bottom:10px">💰 Sales Performance</div>
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-
-    <div class="dash-kpi total" style="border-top:3px solid var(--blue)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:var(--blue)">TOTAL QUOTED</span>
-        <span style="font-size:10px;color:var(--text4)">All quotes</span>
-      </div>
-      <div class="dash-kpi-val" id="dk-total" style="font-size:32px;color:var(--blue);text-align:left">0</div>
-      <div id="dk-quoted-val" style="font-size:14px;font-weight:700;color:var(--text3);margin-top:4px;text-align:left">$0.00</div>
-    </div>
-
-    <div class="dash-kpi win" style="border-top:3px solid #16a34a">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:#16a34a">✅ WON</span>
-        <span style="font-size:10px;color:var(--text4)">Closed wins</span>
-      </div>
-      <div class="dash-kpi-val" id="dk-win" style="font-size:32px;color:#16a34a;text-align:left">0</div>
-      <div id="dk-won-val" style="font-size:14px;font-weight:700;color:#16a34a;margin-top:4px;text-align:left">$0.00</div>
-    </div>
-
-    <div class="dash-kpi loss" style="border-top:3px solid var(--red)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:var(--red)">❌ LOST</span>
-        <span style="font-size:10px;color:var(--text4)">Closed losses</span>
-      </div>
-      <div class="dash-kpi-val" id="dk-loss" style="font-size:32px;color:var(--red);text-align:left">0</div>
-      <div id="dk-lost-val" style="font-size:14px;font-weight:700;color:var(--red);margin-top:4px;text-align:left">$0.00</div>
-    </div>
-
-    <div class="dash-kpi" style="border-top:3px solid #d97706">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <span class="dash-kpi-lbl" style="font-size:11px;font-weight:700;color:#d97706">⏳ IN PIPELINE</span>
-        <span style="font-size:10px;color:var(--text4)">Open + Follow up</span>
-      </div>
-      <div class="dash-kpi-val" id="dk-open" style="font-size:32px;color:#d97706;text-align:left">0</div>
-      <div style="display:flex;gap:10px;margin-top:4px">
-        <span id="dk-follow" style="font-size:12px;font-weight:700;color:#d97706"></span>
-        <div id="dk-pipeline-val" style="font-size:14px;font-weight:700;color:var(--text3)">$0.00</div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Sales charts row -->
-  <div class="dash-charts-row" style="margin-bottom:24px">
-    <div class="dash-chart-card">
-      <div class="dash-chart-title">Quote Status</div>
-      <div class="pie-wrap">
-        <svg class="pie-svg" id="dash-pie" width="120" height="120" viewBox="0 0 120 120"></svg>
-        <div class="pie-legend" id="dash-pie-legend"></div>
-      </div>
-    </div>
-    <div class="dash-chart-card">
-      <div class="dash-chart-title">Offer Value by Status</div>
-      <div class="val-bar-row" id="dash-val-bars"></div>
-    </div>
-  </div>
-
-  <!-- ── SECTION 2: CAP ACTIVITY ── -->
-
-  
 </div>
-</div>
-
-<!-- ══ STIP TAB ══ -->
-<div class="tab-page" id="tab-stip">
-<div class="dash-wrap">
-  <div class="proj-header">
-    <div><div class="proj-title">💰 STIP Bonus Calculator <span>Quarterly lodgments, payout curve, year-end true-up</span></div></div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <label style="font-size:12px;font-weight:700;color:var(--text3)">Year</label>
-      <select class="proj-select" id="stip-year" style="width:auto" onchange="stipYearChanged()"></select>
-      <button class="btn btn-ghost btn-sm" onclick="var s=document.getElementById('stip-settings');s.style.display=s.style.display==='none'?'':'none'">⚙️ My Setup</button>
-    </div>
-  </div>
-
-  <!-- Settings -->
-  <div class="acard" id="stip-settings" style="display:none">
-    <div class="acard-title">⚙️ My Setup <span style="font-size:11px;font-weight:400;color:var(--text4)">private to you — saved per year</span></div>
-    <div class="stip-row5">
-      <div class="proj-field"><label>Salary — before April ($)</label><input type="number" class="proj-input" id="st-prevsalary" placeholder="e.g. 92500" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Salary — from April ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 96200" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Raise effective from</label><select class="proj-select" id="st-raiseq" onchange="stipSaveConfig()"><option value="1">Q1</option><option value="2">Q2 (April)</option><option value="3">Q3</option><option value="4">Q4</option></select></div>
-      <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 40" step="0.5" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Tax on bonus (%)</label><input type="number" class="proj-input" id="st-tax" value="32.73" step="0.01" onchange="stipSaveConfig()"></div>
-    </div>
-    <div class="stip-row4">
-      <div class="proj-field"><label>Super rate (%)</label><input type="number" class="proj-input" id="st-super" value="12" step="0.5" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Super treatment</label><select class="proj-select" id="st-supermode" onchange="stipSaveConfig()"><option value="ontop">Added on top</option><option value="carve">Carved out</option></select></div>
-      <div class="proj-field"><label>Zero-payout floor (%)</label><input type="number" class="proj-input" id="st-floor" value="75" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Max stretch (%)</label><input type="number" class="proj-input" id="st-cap" value="125" onchange="stipSaveConfig()"></div>
-    </div>
-    <div style="font-size:11px;font-weight:700;color:var(--text3);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.05em">KPIs — names &amp; weight of the bonus</div>
-    <div style="display:flex;flex-direction:column;gap:8px;max-width:520px">
-      <div class="stip-kpi-row">
-        <div class="stip-kpi-num">1</div>
-        <div class="proj-field"><label>KPI 1 name</label><input class="proj-input" id="st-k1name" placeholder="e.g. Sales" onchange="stipSaveConfig()"></div>
-        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
-      </div>
-      <div class="stip-kpi-row">
-        <div class="stip-kpi-num">2</div>
-        <div class="proj-field"><label>KPI 2 name</label><input class="proj-input" id="st-k2name" placeholder="e.g. Margin" onchange="stipSaveConfig()"></div>
-        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
-      </div>
-      <div class="stip-kpi-row">
-        <div class="stip-kpi-num">3</div>
-        <div class="proj-field"><label>KPI 3 name</label><input class="proj-input" id="st-k3name" placeholder="e.g. CAP calls" onchange="stipSaveConfig()"></div>
-        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
-      </div>
-    </div>
-    <div id="st-config-status" style="font-size:12px;color:var(--accent-dark);margin-top:8px;min-height:16px"></div>
-  </div>
-
-  <!-- Headline cards -->
-  <div class="dash-kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
-    <div class="dash-kpi money"><div class="dash-kpi-val" id="st-hd-target">—</div><div class="dash-kpi-lbl">Annual bonus target</div></div>
-    <div class="dash-kpi win"><div class="dash-kpi-val" id="st-hd-paid">—</div><div class="dash-kpi-lbl">Paid so far (gross)</div></div>
-    <div class="dash-kpi total"><div class="dash-kpi-val" id="st-hd-annual">—</div><div class="dash-kpi-lbl">Year-end entitlement</div></div>
-    <div class="dash-kpi follow"><div class="dash-kpi-val" id="st-hd-trueup">—</div><div class="dash-kpi-lbl">Year-end true-up</div></div>
-  </div>
-
-  <!-- Quarter entry cards -->
-  <div id="stip-quarters" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:20px"></div>
-
-  <!-- Projection -->
-  <div class="acard" id="stip-projection-card">
-    <div class="acard-title">🎯 Path to Full Bonus <span style="font-size:11px;font-weight:400;color:var(--text4)">what you need in the remaining quarters to reach 100% on every KPI for the year</span></div>
-    <div id="stip-projection-body" style="font-size:13px;color:var(--text2)"></div>
-  </div>
-
-  <!-- Year-end reconciliation -->
-  <div class="acard" id="stip-annual-card">
-    <div class="acard-title">🧮 Year-End True-Up</div>
-    <div id="stip-annual-body" style="font-size:13px;color:var(--text2)"></div>
-  </div>
-
-  <!-- Charts -->
-  <div class="dash-charts-row" style="grid-template-columns:1fr 1fr">
-    <div class="dash-chart-card">
-      <div class="dash-chart-title">Quarterly payout (gross $)</div>
-      <div id="stip-chart-quarters" style="display:flex;align-items:flex-end;gap:14px;height:130px;padding:6px 4px 22px"></div>
-    </div>
-    <div class="dash-chart-card">
-      <div class="dash-chart-title">KPI achievement — full year</div>
-      <div class="val-bar-row" id="stip-chart-kpis"></div>
-    </div>
-  </div>
-
-</div>
-</div>
-
-<!-- ══ CAP TAB ══ -->
-<div class="tab-page" id="tab-cap">
-<div class="search-layout" style="height:calc(100vh - 56px)">
+<div class="search-layout" style="min-height:calc(100vh - 56px)">
 
   <!-- ── Left sidebar ── -->
   <aside class="sidebar" id="cap-sidebar" style="width:220px;flex-shrink:0">
@@ -4978,7 +4954,6 @@ function dashExport(){
 var TAB_DEFS=[
   {id:'search',   label:'🔍 Search',         adminOnly:false, alwaysOn:true},
   {id:'project',  label:'📋 Project Pricing', adminOnly:false, alwaysOn:false},
-  {id:'dashboard',label:'📊 Dashboard',       adminOnly:false, alwaysOn:false},
   {id:'stip',     label:'💰 STIP',            adminOnly:false, alwaysOn:false},
   {id:'cap',      label:'👥 CAP',             adminOnly:false, alwaysOn:false},
   {id:'admin',    label:'⚙️ Admin',            adminOnly:true,  alwaysOn:false},
