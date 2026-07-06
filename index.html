@@ -4895,8 +4895,27 @@ function updateColMappingStatus() {
     parts.push('Part: "' + headers[colMapping.partCol] + '"');
   if (colMapping.listPriceCol >= 0 && headers[colMapping.listPriceCol])
     parts.push('Price: "' + headers[colMapping.listPriceCol] + '"');
-  el.textContent = parts.length ? '✓ Mapped: ' + parts.join(' · ') : '⚠ No columns mapped yet — load files and select columns above';
-  el.style.color = parts.length ? 'var(--accent-dark)' : '#d97706';
+  var msg = parts.length ? '✓ Mapped: ' + parts.join(' · ') : '⚠ No columns mapped yet — load files and select columns above';
+  var color = parts.length ? 'var(--accent-dark)' : '#d97706';
+  // Sanity check: show sample values and warn if the price column doesn't look like prices
+  if (colMapping.listPriceCol >= 0 && allRows && allRows.length) {
+    var samples = [];
+    for (var i = 0; i < allRows.length && samples.length < 5; i += Math.max(1, Math.floor(allRows.length / 11))) {
+      var v = (allRows[i][colMapping.listPriceCol] || '').toString().trim();
+      if (v) samples.push(v);
+    }
+    if (samples.length) {
+      msg += '  ·  sample prices: ' + samples.join(', ');
+      var nums = samples.map(function(s){ return parseFloat(s.replace(/[^0-9.]/g, '')); }).filter(function(n){ return !isNaN(n); });
+      var allTiny = nums.length && nums.every(function(n){ return n <= 10 && n === Math.round(n); });
+      if (allTiny) {
+        msg = '⚠ WARNING: the selected List Price column contains values like "' + samples.join(', ') + '" — this looks like a QTY or code column, not prices! Pick a Cost/Price column instead.  ·  ' + msg;
+        color = 'var(--red)';
+      }
+    }
+  }
+  el.textContent = msg;
+  el.style.color = color;
 }
 
 // ── Auto-detect sensible defaults when file loads ─────
