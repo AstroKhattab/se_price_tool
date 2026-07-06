@@ -5201,57 +5201,72 @@ function updateColMappingStatus() {
 
 // ── Auto-detect sensible defaults when file loads ─────
 function autoDetectColMapping() {
-  if (!headers || !headers.length) return;
-  var hLow = headers.map(function(h){ return h.toLowerCase(); });
+  if (!headers || !headers.length || !allRows || !allRows.length) return;
+  var hLow = headers.map(function(h){ return (h||'').toString().toLowerCase(); });
+
+  // Does a column's sampled values look like real prices (not qty/discount)?
+  function priceLike(ci){
+    if (ci < 0) return false;
+    var vals=[], step=Math.max(1,Math.floor(allRows.length/200));
+    for (var r=0; r<allRows.length && vals.length<200; r+=step){
+      var n=parseFloat((allRows[r][ci]||'').toString().replace(/[^0-9.]/g,''));
+      if(!isNaN(n)&&n>0) vals.push(n);
+    }
+    if (vals.length < 5) return false;
+    var withDecimals = vals.filter(function(v){ return v!==Math.round(v); }).length / vals.length;
+    var avg = vals.reduce(function(s,v){return s+v;},0)/vals.length;
+    // Real prices: mostly have cents OR the average is clearly above a qty range
+    return withDecimals >= 0.3 || avg >= 15;
+  }
 
   // Part number
   if (colMapping.partCol < 0) {
     var partHints = ['cust cat no','customer cat no','customer item','part number','part no'];
-    for (var i=0; i<hLow.length; i++) {
-      for (var k=0; k<partHints.length; k++) {
-        if (hLow[i].includes(partHints[k])) { colMapping.partCol = i; break; }
-      }
-      if (colMapping.partCol >= 0) break;
+    for (var i=0; i<hLow.length; i++){
+      for (var k=0; k<partHints.length; k++){ if (hLow[i].includes(partHints[k])){ colMapping.partCol=i; break; } }
+      if (colMapping.partCol>=0) break;
     }
   }
 
-  // List price: Price Break 1 incl GST (prefer this over wholesale)
-  if (colMapping.listPriceCol < 0) {
-    for (var i=0; i<hLow.length; i++) {
-      var h = hLow[i];
-      if (h.includes('excl')) continue;
-      if (h.includes('price break 1') && h.includes('incl')) { colMapping.listPriceCol = i; break; }
+  // List price — ranked candidates, but only accept a PRICE-LIKE column.
+  // Re-detect if unset OR the current pick doesn't look like prices.
+  if (colMapping.listPriceCol < 0 || !priceLike(colMapping.listPriceCol)) {
+    var found=-1;
+    var rank=[
+      function(h){ return h.indexOf('excl')===-1 && h.indexOf('qty')===-1 && h.indexOf('discount')===-1 && h.indexOf('price break 1')!==-1 && h.indexOf('cost')!==-1 && h.indexOf('incl')!==-1; },
+      function(h){ return h.indexOf('excl')===-1 && h.indexOf('qty')===-1 && h.indexOf('wholesale')!==-1 && h.indexOf('incl')!==-1; },
+      function(h){ return h.indexOf('excl')===-1 && h.indexOf('qty')===-1 && h.indexOf('rrp')===-1 && h.indexOf('incl')!==-1 && (h.indexOf('price')!==-1||h.indexOf('cost')!==-1); }
+    ];
+    for (var pass=0; pass<rank.length && found<0; pass++){
+      for (var i2=0; i2<hLow.length; i2++){
+        if (rank[pass](hLow[i2]) && priceLike(i2)) { found=i2; break; }
+      }
     }
-  }
-  // Fallback: wholesale incl gst
-  if (colMapping.listPriceCol < 0) {
-    for (var i=0; i<hLow.length; i++) {
-      var h = hLow[i];
-      if (h.includes('excl')) continue;
-      if (h.includes('wholesale') && h.includes('incl')) { colMapping.listPriceCol = i; break; }
+    // last resort: the price-like column with the highest average value
+    if (found<0){
+      var best=-1,bestAvg=0;
+      for (var i3=0; i3<hLow.length; i3++){
+        if (hLow[i3].indexOf('qty')!==-1||hLow[i3].indexOf('discount')!==-1||hLow[i3].indexOf('rrp')!==-1) continue;
+        if (!priceLike(i3)) continue;
+        var vv=[],st=Math.max(1,Math.floor(allRows.length/100)),sum=0,cnt=0;
+        for(var r2=0;r2<allRows.length&&cnt<100;r2+=st){var n2=parseFloat((allRows[r2][i3]||'').toString().replace(/[^0-9.]/g,''));if(!isNaN(n2)&&n2>0){sum+=n2;cnt++;}}
+        var a=cnt?sum/cnt:0;
+        if(a>bestAvg){bestAvg=a;best=i3;}
+      }
+      found=best;
     }
-  }
-  // Fallback: any incl gst price column
-  if (colMapping.listPriceCol < 0) {
-    for (var i=0; i<hLow.length; i++) {
-      var h = hLow[i];
-      if (h.includes('excl') || h.includes('rrp')) continue;
-      if (h.includes('incl') && (h.includes('price') || h.includes('cost'))) { colMapping.listPriceCol = i; break; }
-    }
+    if (found>=0) colMapping.listPriceCol=found;
   }
 
   // Description
   if (colMapping.descCol < 0) {
-    for (var i=0; i<hLow.length; i++) {
-      if (hLow[i].includes('description') || hLow[i].includes('desc')) { colMapping.descCol = i; break; }
-    }
+    for (var i4=0; i4<hLow.length; i4++){ if (hLow[i4].includes('description')||hLow[i4].includes('desc')){ colMapping.descCol=i4; break; } }
   }
 
   saveColMapping();
   buildColMappingUI();
-  console.log('[ColMapping] Auto-detected: part='+colMapping.partCol+' price='+colMapping.listPriceCol+' desc='+colMapping.descCol);
+  console.log('[ColMapping] Auto-detected: part='+colMapping.partCol+' price='+colMapping.listPriceCol+' ('+headers[colMapping.listPriceCol]+') desc='+colMapping.descCol);
 }
-
 // Auto-detect GMI columns when GMI file loads
 function autoDetectGMIMapping(tier, rawHeaders) {
   if (!rawHeaders || !rawHeaders.length) return;
@@ -5509,9 +5524,8 @@ function projDebug() {
 // ── Hook: auto-detect on price file load ──────────────
 // Called from loadFromDB
 function onPriceFileLoaded() {
-  if (colMapping.partCol < 0 && colMapping.listPriceCol < 0) {
-    autoDetectColMapping();
-  }
+  // Always run detection — it self-heals a missing or wrong price column
+  autoDetectColMapping();
   buildColMappingUI();
   updateColMappingStatus();
 }
