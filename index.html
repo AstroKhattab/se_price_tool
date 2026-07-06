@@ -2718,6 +2718,7 @@ function calcOneLine(partNum, qty, priceMode, manualPrice) {
 
   var listPrice = priceInfo ? priceInfo.listPrice : null;
   var desc = priceInfo ? priceInfo.desc : '';
+  var uom = priceInfo ? (priceInfo.uom||'') : '';
   var gmiPrice = gmiHit ? (priceCol === 'best' ? gmiHit.best : gmiHit.rha) : null;
 
   // Normalise both prices to INCL GST so list-vs-GMI comparisons are like-for-like
@@ -2749,6 +2750,7 @@ function calcOneLine(partNum, qty, priceMode, manualPrice) {
     listPrice: listPrice, gmiPrice: gmiPrice, offerPrice: offerPrice,
     matchType: matchType, discPct: matchType === 'discount' ? discPct : null,
     lineList: lineList, lineOffer: lineOffer, saving: saving, savePct: savePct,
+    uom: uom,
     priceMode: priceMode, manualPrice: priceMode==='manual' ? offerPrice : (manualPrice!=null?manualPrice:null)
   };
 }
@@ -3522,15 +3524,41 @@ async function exportQuoteTemplate(lines, projName, totOffer){
       ws.spliceRows(DATA_START+n, TEMPLATE_ROWS-n);
     }
 
-    // Fill ONLY # / Qty / Product / Description — leave every other column blank
+    // Fill only columns backed by REAL data (price file + Project Pricing).
+    // Left blank (not derivable): Product Number, Price Source, Price List,
+    // Discount Type, Value, Total Tax %, Rebate %.
+    var setN=function(r,c,v){ if(v!=null&&!isNaN(v)) r.getCell(c).value=v; };
     lines.forEach(function(l,i){
       var r=ws.getRow(DATA_START+i);
-      r.getCell(1).value=i+1;          // #
-      r.getCell(2).value=l.qty;        // Qty
-      r.getCell(4).value=l.partNum;    // Product
-      r.getCell(6).value=l.desc||'';   // Description
+      var list=(l.listPrice!=null&&!isNaN(l.listPrice))?l.listPrice:null;   // screen price (from price file)
+      var offer=(l.offerPrice!=null&&!isNaN(l.offerPrice))?l.offerPrice:null; // new price (Project Pricing)
+      var extList=list!=null?list*l.qty:null;
+      var extOffer=offer!=null?offer*l.qty:null;
+      var disc=(list!=null&&offer!=null&&list>0)?(list-offer)/list*100:null;
+      r.getCell(1).value=i+1;                 // #
+      r.getCell(2).value=l.qty;               // Qty
+      if(l.uom) r.getCell(3).value=l.uom;     // Unit Measure  (price file UOM)
+      r.getCell(4).value=l.partNum;           // Product
+      if(l.desc) r.getCell(6).value=l.desc;   // Description   (price file)
+      setN(r,9,list);                         // Unit List Price
+      setN(r,10,extList);                     // Ext List Price
+      setN(r,11,disc);                        // Standard Discount %
+      setN(r,12,offer);                       // Unit Price
+      setN(r,13,extOffer);                    // Ext. Price
+      setN(r,16,disc);                        // Total Discount %
+      setN(r,17,offer);                       // Unit Net Price
+      setN(r,18,extOffer);                    // Ext. Net Price
+      setN(r,20,offer);                       // Unit Net Price incl Tax (prices are incl GST)
+      setN(r,21,extOffer);                    // Ext Net Price incl Tax
+      setN(r,23,offer);                       // Net Net Price
+      setN(r,24,extOffer);                    // Ext Net Net Price
       r.commit&&r.commit();
     });
+
+    // Total (Ext. Net Price column) like the original template
+    var totRow=DATA_START+n;
+    var tot=lines.reduce(function(s,l){return s+(l.lineOffer||0);},0);
+    try{ if(tot) ws.getCell(totRow,18).value=tot; }catch(e){}
 
     var out=await wb.xlsx.writeBuffer();
     var fname=((qnum?qnum+'_':'')+(projName||'Quote')).replace(/[^a-z0-9\-]/gi,'_')+'.xlsx';
@@ -5266,6 +5294,7 @@ function lookupPartExact(partNum) {
   var pi = colMapping.partCol >= 0 ? colMapping.partCol : colMap['part_number'];
   var pb1i = colMapping.listPriceCol >= 0 ? colMapping.listPriceCol : -1;
   var di = colMapping.descCol >= 0 ? colMapping.descCol : colMap['description'];
+  var ui = (function(){ for(var h=0;h<headers.length;h++){ var x=(headers[h]||'').toString().toLowerCase().trim(); if(x==='uom'||x==='unit measure'||x==='unit of measure') return h; } return -1; })();
 
   if (pi === undefined || pi === null || pi < 0) {
     console.warn('[lookup] partCol not mapped. colMapping=', colMapping);
@@ -5284,7 +5313,8 @@ function lookupPartExact(partNum) {
     if (v === key) {
       var price = parseFloat((allRows[i][pb1i] || '').toString().replace(/[^0-9.]/g, ''));
       var desc = (di >= 0 && di !== undefined) ? (allRows[i][di] || '').toString().trim() : '';
-      if (!isNaN(price) && price > 0) return { listPrice: price, desc: desc };
+      var uom = ui >= 0 ? (allRows[i][ui] || '').toString().trim() : '';
+      if (!isNaN(price) && price > 0) return { listPrice: price, desc: desc, uom: uom };
     }
   }
   // Pass 2: stripped
@@ -5293,7 +5323,8 @@ function lookupPartExact(partNum) {
     if (v === keyStripped) {
       var price = parseFloat((allRows[i][pb1i] || '').toString().replace(/[^0-9.]/g, ''));
       var desc = (di >= 0 && di !== undefined) ? (allRows[i][di] || '').toString().trim() : '';
-      if (!isNaN(price) && price > 0) return { listPrice: price, desc: desc };
+      var uom = ui >= 0 ? (allRows[i][ui] || '').toString().trim() : '';
+      if (!isNaN(price) && price > 0) return { listPrice: price, desc: desc, uom: uom };
     }
   }
   return null;
