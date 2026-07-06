@@ -3398,23 +3398,40 @@ function projExport(fmt){
     var outro=fill(brand.emailOutro).replace(/\n/g,'<br>');
     var th='padding:8px 14px;border:1px solid #d5d9de;background:#3DCD58;color:#ffffff;font-size:13px;text-align:left;font-family:Arial,sans-serif';
     var td='padding:7px 14px;border:1px solid #d5d9de;font-size:13px;font-family:Arial,sans-serif;color:#202124';
+    // Pricing-source label per line: GMI tier, discount given, or blank when sold at screen price
+    var gmiTierLabel = tier; // 'Under $30K' / 'Over $30K' (already computed above)
+    var srcLabel=function(l){
+      if(l.matchType==='gmi') return 'GMI '+gmiTierLabel;
+      var samePrice = l.listPrice!=null && l.offerPrice!=null && Math.abs(l.listPrice-l.offerPrice)<0.005;
+      if(samePrice) return '';
+      if(l.matchType==='discount') return (l.discPct!=null?l.discPct:'')+'% discount';
+      if(l.matchType==='manual'){
+        if(l.listPrice!=null&&l.offerPrice!=null&&l.listPrice>0){
+          var pct=(l.listPrice-l.offerPrice)/l.listPrice*100;
+          return pct>0 ? pct.toFixed(1)+'% discount' : 'Special price';
+        }
+        return 'Special price';
+      }
+      return '';
+    };
     var htmlRows=activeLines.map(function(l,i){
       var bg=i%2?'background:#f5faf6;':'';
       return '<tr>'+
         '<td style="'+td+bg+'">'+escH(l.partNum)+'</td>'+
         '<td style="'+td+bg+'text-align:center">'+l.qty+'</td>'+
         '<td style="'+td+bg+'text-align:right;font-weight:bold">$'+fmtNum(l.offerPrice)+'</td>'+
+        '<td style="'+td+bg+'color:#5f6368;font-size:12px">'+escH(srcLabel(l))+'</td>'+
       '</tr>';
     }).join('');
     var html='<div style="font-family:Arial,sans-serif;font-size:13px;color:#202124">'+
       '<p>'+intro+'</p>'+
       '<table style="border-collapse:collapse;margin:10px 0">'+
-      '<tr><th style="'+th+'">Product</th><th style="'+th+'">Quantity</th><th style="'+th+'">Price (incl GST)</th></tr>'+
+      '<tr><th style="'+th+'">Product</th><th style="'+th+'">Quantity</th><th style="'+th+'">Price (incl GST)</th><th style="'+th+'">Pricing</th></tr>'+
       htmlRows+
-      '<tr><td style="'+td+'font-weight:bold" colspan="2">TOTAL</td><td style="'+td+'text-align:right;font-weight:bold">$'+fmtNum(totOffer)+'</td></tr>'+
+      '<tr><td style="'+td+'font-weight:bold" colspan="2">TOTAL</td><td style="'+td+'text-align:right;font-weight:bold">$'+fmtNum(totOffer)+'</td><td style="'+td+'"></td></tr>'+
       '</table>'+
       '<p>'+outro+'</p></div>';
-    var plain=fill(brand.emailIntro)+'\n\n'+activeLines.map(function(l){return l.partNum+'  x'+l.qty+'  $'+fmtNum(l.offerPrice);}).join('\n')+'\nTOTAL: $'+fmtNum(totOffer)+'\n\n'+fill(brand.emailOutro);
+    var plain=fill(brand.emailIntro)+'\n\n'+activeLines.map(function(l){var s=srcLabel(l);return l.partNum+'  x'+l.qty+'  $'+fmtNum(l.offerPrice)+(s?'  ('+s+')':'');}).join('\n')+'\nTOTAL: $'+fmtNum(totOffer)+'\n\n'+fill(brand.emailOutro);
     if(navigator.clipboard&&window.ClipboardItem){
       navigator.clipboard.write([new ClipboardItem({
         'text/html': new Blob([html],{type:'text/html'}),
