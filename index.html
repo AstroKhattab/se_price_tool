@@ -643,6 +643,12 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
 @media(max-width:720px){
   #stip-quarters{grid-template-columns:1fr!important}
 }
+.stip-row5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.stip-row4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:4px}
+.stip-kpi-row{display:grid;grid-template-columns:22px 1fr 110px;gap:10px;align-items:center}
+.stip-kpi-num{font-weight:800;color:var(--accent-dark);text-align:center}
+@media(max-width:900px){.stip-row5,.stip-row4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.stip-row5,.stip-row4{grid-template-columns:1fr}}
 @media(max-width:860px){
   .top-nav{flex-wrap:wrap;height:auto;padding:6px 12px;gap:4px}
   .tab-nav{height:auto;flex-wrap:wrap}
@@ -3989,33 +3995,35 @@ async function loadSavedGMI(){
   <!-- Settings -->
   <div class="acard" id="stip-settings" style="display:none">
     <div class="acard-title">⚙️ My Setup <span style="font-size:11px;font-weight:400;color:var(--text4)">private to you — saved per year</span></div>
-    <div class="proj-setup-grid">
+    <div class="stip-row5">
+      <div class="proj-field"><label>Salary — before April ($)</label><input type="number" class="proj-input" id="st-prevsalary" placeholder="e.g. 92500" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Salary — from April ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 96200" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Salary — before April raise ($)</label><input type="number" class="proj-input" id="st-prevsalary" placeholder="e.g. 92500 (blank = same)" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Raise effective from</label><select class="proj-select" id="st-raiseq" onchange="stipSaveConfig()"><option value="1">Q1</option><option value="2">Q2 (April)</option><option value="3">Q3</option><option value="4">Q4</option></select></div>
       <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 40" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Tax on bonus (%)</label><input type="number" class="proj-input" id="st-tax" value="32.73" step="0.01" onchange="stipSaveConfig()"></div>
+    </div>
+    <div class="stip-row4">
       <div class="proj-field"><label>Super rate (%)</label><input type="number" class="proj-input" id="st-super" value="12" step="0.5" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Super treatment</label><select class="proj-select" id="st-supermode" onchange="stipSaveConfig()"><option value="ontop">Added on top (Super Guarantee)</option><option value="carve">Carved out of bonus</option></select></div>
-      <div class="proj-field"><label>Tax on bonus (%)</label><input type="number" class="proj-input" id="st-tax" value="32.73" step="0.01" onchange="stipSaveConfig()"><span style="font-size:10px;color:var(--text4)">marginal rate — from your payslip</span></div>
+      <div class="proj-field"><label>Super treatment</label><select class="proj-select" id="st-supermode" onchange="stipSaveConfig()"><option value="ontop">Added on top</option><option value="carve">Carved out</option></select></div>
       <div class="proj-field"><label>Zero-payout floor (%)</label><input type="number" class="proj-input" id="st-floor" value="75" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Max stretch (%)</label><input type="number" class="proj-input" id="st-cap" value="125" onchange="stipSaveConfig()"></div>
     </div>
     <div style="font-size:11px;font-weight:700;color:var(--text3);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.05em">KPIs — names &amp; weight of the bonus</div>
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <div style="display:grid;grid-template-columns:28px 1fr 130px;gap:10px;align-items:center">
-        <div style="font-weight:800;color:var(--accent-dark)">1</div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:520px">
+      <div class="stip-kpi-row">
+        <div class="stip-kpi-num">1</div>
         <div class="proj-field"><label>KPI 1 name</label><input class="proj-input" id="st-k1name" placeholder="e.g. Sales" onchange="stipSaveConfig()"></div>
-        <div class="proj-field"><label>Weight (%)</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
       </div>
-      <div style="display:grid;grid-template-columns:28px 1fr 130px;gap:10px;align-items:center">
-        <div style="font-weight:800;color:var(--accent-dark)">2</div>
+      <div class="stip-kpi-row">
+        <div class="stip-kpi-num">2</div>
         <div class="proj-field"><label>KPI 2 name</label><input class="proj-input" id="st-k2name" placeholder="e.g. Margin" onchange="stipSaveConfig()"></div>
-        <div class="proj-field"><label>Weight (%)</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
       </div>
-      <div style="display:grid;grid-template-columns:28px 1fr 130px;gap:10px;align-items:center">
-        <div style="font-weight:800;color:var(--accent-dark)">3</div>
+      <div class="stip-kpi-row">
+        <div class="stip-kpi-num">3</div>
         <div class="proj-field"><label>KPI 3 name</label><input class="proj-input" id="st-k3name" placeholder="e.g. CAP calls" onchange="stipSaveConfig()"></div>
-        <div class="proj-field"><label>Weight (%)</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight %</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
       </div>
     </div>
     <div id="st-config-status" style="font-size:12px;color:var(--accent-dark);margin-top:8px;min-height:16px"></div>
