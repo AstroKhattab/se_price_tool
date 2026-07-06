@@ -640,6 +640,9 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
 @media(max-width:1024px){
   .search-layout{grid-template-columns:240px 1fr}
 }
+@media(max-width:720px){
+  #stip-quarters{grid-template-columns:1fr!important}
+}
 @media(max-width:860px){
   .top-nav{flex-wrap:wrap;height:auto;padding:6px 12px;gap:4px}
   .tab-nav{height:auto;flex-wrap:wrap}
@@ -3956,14 +3959,23 @@ async function loadSavedGMI(){
       <div class="proj-field"><label>Zero-payout floor (%)</label><input type="number" class="proj-input" id="st-floor" value="75" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Max stretch (%)</label><input type="number" class="proj-input" id="st-cap" value="125" onchange="stipSaveConfig()"></div>
     </div>
-    <div style="font-size:11px;font-weight:700;color:var(--text3);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em">KPIs — names &amp; weight of the bonus</div>
-    <div class="proj-setup-grid">
-      <div class="proj-field"><label>KPI 1 name</label><input class="proj-input" id="st-k1name" placeholder="e.g. Sales" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>KPI 1 weight (%)</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>KPI 2 name</label><input class="proj-input" id="st-k2name" placeholder="e.g. Margin" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>KPI 2 weight (%)</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>KPI 3 name</label><input class="proj-input" id="st-k3name" placeholder="e.g. CAP calls" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>KPI 3 weight (%)</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
+    <div style="font-size:11px;font-weight:700;color:var(--text3);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.05em">KPIs — names &amp; weight of the bonus</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:grid;grid-template-columns:28px 1fr 130px;gap:10px;align-items:center">
+        <div style="font-weight:800;color:var(--accent-dark)">1</div>
+        <div class="proj-field"><label>KPI 1 name</label><input class="proj-input" id="st-k1name" placeholder="e.g. Sales" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight (%)</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:28px 1fr 130px;gap:10px;align-items:center">
+        <div style="font-weight:800;color:var(--accent-dark)">2</div>
+        <div class="proj-field"><label>KPI 2 name</label><input class="proj-input" id="st-k2name" placeholder="e.g. Margin" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight (%)</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:28px 1fr 130px;gap:10px;align-items:center">
+        <div style="font-weight:800;color:var(--accent-dark)">3</div>
+        <div class="proj-field"><label>KPI 3 name</label><input class="proj-input" id="st-k3name" placeholder="e.g. CAP calls" onchange="stipSaveConfig()"></div>
+        <div class="proj-field"><label>Weight (%)</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
+      </div>
     </div>
     <div id="st-config-status" style="font-size:12px;color:var(--accent-dark);margin-top:8px;min-height:16px"></div>
   </div>
@@ -3977,7 +3989,13 @@ async function loadSavedGMI(){
   </div>
 
   <!-- Quarter entry cards -->
-  <div id="stip-quarters" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:20px"></div>
+  <div id="stip-quarters" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:20px"></div>
+
+  <!-- Projection -->
+  <div class="acard" id="stip-projection-card">
+    <div class="acard-title">🎯 Path to Full Bonus <span style="font-size:11px;font-weight:400;color:var(--text4)">what you need in the remaining quarters to reach 100% on every KPI for the year</span></div>
+    <div id="stip-projection-body" style="font-size:13px;color:var(--text2)"></div>
+  </div>
 
   <!-- Year-end reconciliation -->
   <div class="acard" id="stip-annual-card">
@@ -4321,14 +4339,21 @@ function normStatus(s){ return {open:'draft',follow:'sent',win:'won',loss:'lost'
 // ── Dashboard Render ──────────────────────────────────
 var allSavedQuotes=[];
 
+var _loadQuotesPromise=null;
 async function loadAllQuotes(){
+  if(_loadQuotesPromise) return _loadQuotesPromise;
+  _loadQuotesPromise=_loadAllQuotesInner().finally(function(){_loadQuotesPromise=null;});
+  return _loadQuotesPromise;
+}
+async function _loadAllQuotesInner(){
   try{
     var idx=await dbGet('settings','quote_index')||[];
-    allSavedQuotes=[];
+    var loaded=[];
     for(var i=0;i<idx.length;i++){
-      try{var q=await dbGet('settings',idx[i]);if(q)allSavedQuotes.push(q);}catch(e){}
+      try{var q=await dbGet('settings',idx[i]);if(q)loaded.push(q);}catch(e){}
     }
-    allSavedQuotes.forEach(function(q){q._ownerName='';q._ownerId=sbUser?sbUser.id:'';});
+    loaded.forEach(function(q){q._ownerName='';q._ownerId=sbUser?sbUser.id:'';});
+    allSavedQuotes=loaded;
   }catch(e){allSavedQuotes=[];}
   // Admin: also pull every other user's quotes from the cloud
   if(isAdmin&&sb&&sbUser){
@@ -4518,7 +4543,7 @@ function openQuoteForm(id){
 function backToQuoteList(){
   document.getElementById('proj-form-view').style.display='none';
   document.getElementById('proj-list-view').style.display='';
-  loadAllQuotes().then ? loadAllQuotes().then(function(){renderQuoteList();}) : renderQuoteList();
+  loadAllQuotes().then(function(){renderQuoteList();});
 }
 
 function renderDashboard(){
@@ -6717,10 +6742,12 @@ async function capMigrateIds(){
 // ══════════════════════════════════════════════════════
 // STIP BONUS CALCULATOR
 // ══════════════════════════════════════════════════════
-// Payout curve per KPI: achievement <= floor% → 0; at 100% → 100%; at
-// cap% → 200% (linear between; capped at 200%). Quarterly payments cap each
-// KPI at 100% — over-achievement is settled in the year-end true-up, which
-// recalculates on FULL-YEAR numbers and pays (or claws back) the difference.
+// KPI figures are entered directly as achievement % (e.g. 98.7, 103.3).
+// Payout curve per KPI: ach <= floor% -> 0; at 100% -> 100%; at cap% -> 200%
+// (linear between; hard-capped at 200%). Quarterly payments cap each KPI at
+// 100%; the year-end true-up recalculates on the FULL-YEAR average and settles
+// the difference (positive = they pay you, negative = you owe back).
+// Super is carved OUT of the bonus (we pay super from the bonus), then tax.
 var stipCfg=null, stipEntries=null, stipYear=new Date().getFullYear();
 
 function stipDefaults(){
@@ -6729,14 +6756,22 @@ function stipDefaults(){
 }
 function stipCurve(achPct,cfg,capAt100){
   if(achPct==null||isNaN(achPct)) return null;
-  var f=cfg.floor,c=cfg.cap;
-  var p;
+  var f=cfg.floor,c=cfg.cap,p;
   if(achPct<=f) p=0;
   else if(achPct>=c) p=200;
   else if(achPct<=100) p=(achPct-f)/(100-f)*100;
   else p=100+(achPct-100)/(c-100)*100;
   if(capAt100&&p>100) p=100;
   return p;
+}
+// Split a gross bonus $ into super / after-super / tax / net
+function stipSplit(gross,cfg){
+  if(gross==null) return {gross:null,super:null,afterSuper:null,tax:null,net:null};
+  var sup=gross*(cfg.superPct/(100+cfg.superPct));   // super is included in the bonus
+  var afterSuper=gross-sup;
+  var tax=afterSuper*(cfg.taxPct/100);
+  var net=afterSuper-tax;
+  return {gross:gross,super:sup,afterSuper:afterSuper,tax:tax,net:net};
 }
 
 async function stipInit(){
@@ -6749,7 +6784,6 @@ async function stipInit(){
   stipYear=parseInt(ysel.value)||new Date().getFullYear();
   try{ stipCfg=(await dbGet('settings','stip_config_'+stipYear))||null; }catch(e){}
   if(!stipCfg){
-    // fall back to last year's setup so you only type salary once
     try{ stipCfg=(await dbGet('settings','stip_config_'+(stipYear-1)))||null; }catch(e){}
     if(stipCfg) dbPut('settings','stip_config_'+stipYear,stipCfg);
   }
@@ -6775,131 +6809,174 @@ function stipSaveConfig(){
     k3name:txt('st-k3name','KPI 3'),k3w:num('st-k3w',20)};
   var wSum=stipCfg.k1w+stipCfg.k2w+stipCfg.k3w;
   var stEl=document.getElementById('st-config-status');
-  if(stEl) stEl.textContent = wSum===100 ? '✓ Saved' : '⚠ KPI weights add up to '+wSum+'% (should be 100%)';
-  if(stEl) stEl.style.color = wSum===100 ? 'var(--accent-dark)' : 'var(--red)';
-  dbPut('settings','stip_config_'+stipYear,stipCfg);
+  if(stEl){ stEl.textContent = wSum===100 ? 'Saved automatically' : 'KPI weights add up to '+wSum+'% (should be 100%)';
+    stEl.style.color = wSum===100 ? 'var(--accent-dark)' : 'var(--red)'; }
+  dbPut('settings','stip_config_'+stipYear,stipCfg);   // auto-saves to your account
   audit('stip_config_saved',{year:stipYear});
   stipRender();
 }
 function stipSaveEntry(q,field,val){
   if(!stipEntries[q]) stipEntries[q]={};
   var v=parseFloat(val);
-  stipEntries[q][field]=isNaN(v)?null:v;
-  dbPut('settings','stip_entries_'+stipYear,stipEntries);
+  stipEntries[q][field]=(val===''||isNaN(v))?null:v;
+  dbPut('settings','stip_entries_'+stipYear,stipEntries);   // auto-saves
   stipRender();
 }
 
-// Per-quarter computation (quarterly payout caps each KPI at 100%)
+var STIP_QS=['Q1','Q2','Q3','Q4'];
+
+// Per-quarter: KPI % entered directly; quarterly payout caps each KPI at 100%
 function stipQuarterCalc(q){
   var e=stipEntries[q]||{};
   var pot=(stipCfg.salary*stipCfg.bonusPct/100)/4;
   var kpis=[1,2,3].map(function(k){
-    var t=e['k'+k+'t'],a=e['k'+k+'a'];
-    var ach=(t&&t>0&&a!=null)?a/t*100:null;
+    var ach=e['k'+k]; if(ach===undefined) ach=null;
     var pay=stipCurve(ach,stipCfg,true);
     var w=stipCfg['k'+k+'w'];
-    return {k:k,name:stipCfg['k'+k+'name'],t:t,a:a,ach:ach,pay:pay,w:w,dollars:pay!=null?pot*(w/100)*(pay/100):null};
+    return {k:k,name:stipCfg['k'+k+'name'],ach:ach,pay:pay,w:w,dollars:pay!=null?pot*(w/100)*(pay/100):null};
   });
   var entered=kpis.some(function(x){return x.ach!=null;});
   var gross=entered?kpis.reduce(function(s,x){return s+(x.dollars||0);},0):null;
   return {kpis:kpis,pot:pot,gross:gross,entered:entered};
 }
 
-// Year-end: full-year achievement per KPI, uncapped curve, minus quarterly paid
+// Year-end: full-year achievement per KPI = AVERAGE of entered quarters, uncapped curve
 function stipAnnualCalc(){
   var pot=stipCfg.salary*stipCfg.bonusPct/100;
   var kpis=[1,2,3].map(function(k){
-    var T=0,A=0,any=false;
-    ['Q1','Q2','Q3','Q4'].forEach(function(q){
-      var e=stipEntries[q]||{};
-      if(e['k'+k+'t']){T+=e['k'+k+'t'];any=true;}
-      if(e['k'+k+'a']!=null){A+=e['k'+k+'a'];}
-    });
-    var ach=(any&&T>0)?A/T*100:null;
-    var pay=stipCurve(ach,stipCfg,false); // uncapped up to 200%
+    var sum=0,n=0;
+    STIP_QS.forEach(function(q){ var e=stipEntries[q]||{}; if(e['k'+k]!=null){sum+=e['k'+k];n++;} });
+    var ach=n?sum/n:null;
+    var pay=stipCurve(ach,stipCfg,false);
     var w=stipCfg['k'+k+'w'];
-    return {k:k,name:stipCfg['k'+k+'name'],T:T,A:A,ach:ach,pay:pay,w:w,dollars:pay!=null?pot*(w/100)*(pay/100):null};
+    return {k:k,name:stipCfg['k'+k+'name'],ach:ach,n:n,pay:pay,w:w,dollars:pay!=null?pot*(w/100)*(pay/100):null};
   });
   var any=kpis.some(function(x){return x.ach!=null;});
   var annual=any?kpis.reduce(function(s,x){return s+(x.dollars||0);},0):null;
   var paid=0;
-  ['Q1','Q2','Q3','Q4'].forEach(function(q){ var c=stipQuarterCalc(q); paid+=c.gross||0; });
+  STIP_QS.forEach(function(q){ var c=stipQuarterCalc(q); paid+=c.gross||0; });
   return {kpis:kpis,pot:pot,annual:annual,paid:paid,trueup:annual!=null?annual-paid:null};
 }
 
+// Projection: for each KPI, the % needed in each REMAINING quarter so the
+// full-year average hits 100%. Remaining = quarters with no figure yet, after
+// the last quarter that does. Difference spread equally across them.
+function stipProjection(){
+  var lastEntered=-1;
+  STIP_QS.forEach(function(q,i){ var e=stipEntries[q]||{}; if([1,2,3].some(function(k){return e['k'+k]!=null;})) lastEntered=i; });
+  var remainingIdx=[];
+  for(var i=0;i<4;i++){ if(i>lastEntered) remainingIdx.push(i); }
+  if(!remainingIdx.length) return {done:true};
+  var kpis=[1,2,3].map(function(k){
+    var sum=0,n=0;
+    STIP_QS.forEach(function(q){ var e=stipEntries[q]||{}; if(e['k'+k]!=null){sum+=e['k'+k];n++;} });
+    // need the 4-quarter average to be 100 -> total must be 400
+    var needTotal=400-sum;
+    var per=needTotal/remainingIdx.length;
+    return {name:stipCfg['k'+k+'name'],enteredAvg:n?sum/n:null,per:per,n:n};
+  });
+  return {done:false,remaining:remainingIdx.map(function(i){return STIP_QS[i];}),kpis:kpis};
+}
+
 function stipMoney(v){ return v==null?'—':'$'+fmtNum(v); }
+function stipPct(v){ return v==null?'—':(Math.round(v*100)/100)+'%'; }
+function achColorG(a,cfg){ return a==null?'var(--text4)':a>=100?'#16a34a':a>=cfg.floor?'#d97706':'var(--red)'; }
 
 function stipRender(){
   if(!stipCfg) return;
   var qWrap=document.getElementById('stip-quarters'); if(!qWrap) return;
-  var achColor=function(a){ return a==null?'var(--text4)':a>=100?'#16a34a':a>=stipCfg.floor?'#d97706':'var(--red)'; };
+  var cfg=stipCfg;
 
-  qWrap.innerHTML=['Q1','Q2','Q3','Q4'].map(function(q){
+  qWrap.innerHTML=STIP_QS.map(function(q){
     var c=stipQuarterCalc(q);
     var e=stipEntries[q]||{};
     var rows=c.kpis.map(function(x){
-      return '<div style="display:grid;grid-template-columns:1fr 76px 76px 62px 62px;gap:6px;align-items:center;margin-bottom:6px">'+
+      return '<div style="display:grid;grid-template-columns:1fr 92px 66px 66px;gap:8px;align-items:center;margin-bottom:7px">'+
         '<div style="font-size:11px;font-weight:700;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escH(x.name)+' — '+x.w+'% of bonus">'+escH(x.name)+' <span style="color:var(--text4);font-weight:400">'+x.w+'%</span></div>'+
-        '<input type="number" class="proj-input" style="padding:5px 7px;font-size:12px" placeholder="Target" value="'+(e['k'+x.k+'t']!=null?e['k'+x.k+'t']:'')+'" onchange="stipSaveEntry(\''+q+'\',\'k'+x.k+'t\',this.value)">'+
-        '<input type="number" class="proj-input" style="padding:5px 7px;font-size:12px" placeholder="Actual" value="'+(e['k'+x.k+'a']!=null?e['k'+x.k+'a']:'')+'" onchange="stipSaveEntry(\''+q+'\',\'k'+x.k+'a\',this.value)">'+
-        '<div style="font-size:12px;font-weight:800;text-align:right;color:'+achColor(x.ach)+'">'+(x.ach!=null?x.ach.toFixed(0)+'%':'—')+'</div>'+
-        '<div style="font-size:11px;text-align:right;color:var(--text3)" title="payout of this KPI (quarterly, capped at 100%)">'+(x.pay!=null?x.pay.toFixed(0)+'%':'—')+'</div>'+
+        '<input type="number" step="0.1" class="proj-input" style="padding:6px 8px;font-size:12px;text-align:right" placeholder="%" value="'+(e['k'+x.k]!=null?e['k'+x.k]:'')+'" onchange="stipSaveEntry(\''+q+'\',\'k'+x.k+'\',this.value)">'+
+        '<div style="font-size:12px;font-weight:800;text-align:right;color:'+achColorG(x.ach,cfg)+'" title="achievement entered">'+stipPct(x.ach)+'</div>'+
+        '<div style="font-size:11px;text-align:right;color:var(--text3)" title="payout of this KPI (quarterly, capped 100%)">'+(x.pay!=null?stipPct(x.pay):'—')+'</div>'+
       '</div>';
     }).join('');
-    var g=c.gross, sup=g!=null?g*stipCfg.superPct/100:null, net=g!=null?g*(1-stipCfg.taxPct/100):null;
+    var sp=stipSplit(c.gross,cfg);
     return '<div class="acard" style="margin-bottom:0">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
-        '<div style="font-size:15px;font-weight:800">'+q+' <span style="font-size:11px;font-weight:400;color:var(--text4)">'+stipYear+'</span></div>'+
-        '<div style="font-size:10px;color:var(--text4)">pot $'+fmtNum(c.pot)+'</div>'+
+        '<div style="font-size:16px;font-weight:800">'+q+' <span style="font-size:11px;font-weight:400;color:var(--text4)">'+stipYear+'</span></div>'+
+        '<div style="font-size:10px;color:var(--text4)">quarter pot '+stipMoney(c.pot)+'</div>'+
       '</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 76px 76px 62px 62px;gap:6px;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--text4);font-weight:700;margin-bottom:4px"><div>KPI</div><div>Target</div><div>Actual</div><div style="text-align:right">Achv</div><div style="text-align:right">Payout</div></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 92px 66px 66px;gap:8px;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--text4);font-weight:700;margin-bottom:5px"><div>KPI</div><div style="text-align:right">Achieved %</div><div style="text-align:right">Achv</div><div style="text-align:right">Payout</div></div>'+
       rows+
-      '<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">'+
-        '<div><div style="font-size:15px;font-weight:800;color:var(--accent-dark)">'+stipMoney(g)+'</div><div style="font-size:9px;color:var(--text4);text-transform:uppercase">Gross</div></div>'+
-        '<div><div style="font-size:15px;font-weight:800;color:var(--blue)">'+(g!=null?stipMoney(g+sup):'—')+'</div><div style="font-size:9px;color:var(--text4);text-transform:uppercase">+ Super '+stipCfg.superPct+'%</div></div>'+
-        '<div><div style="font-size:15px;font-weight:800;color:var(--text2)">'+stipMoney(net)+'</div><div style="font-size:9px;color:var(--text4);text-transform:uppercase">Net (−'+stipCfg.taxPct+'% tax)</div></div>'+
+      '<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px">'+
+          '<div style="color:var(--text3)">Bonus (gross)</div><div style="text-align:right;font-weight:800;color:var(--accent-dark)">'+stipMoney(sp.gross)+'</div>'+
+          '<div style="color:var(--text3)">− Super ('+cfg.superPct+'%)</div><div style="text-align:right;color:var(--red)">'+(sp.super!=null?'−'+fmtNum(sp.super):'—')+'</div>'+
+          '<div style="color:var(--text3)">− Tax ('+cfg.taxPct+'%)</div><div style="text-align:right;color:var(--red)">'+(sp.tax!=null?'−'+fmtNum(sp.tax):'—')+'</div>'+
+          '<div style="font-weight:800;color:var(--text)">Net in pocket</div><div style="text-align:right;font-weight:800;color:#16a34a">'+stipMoney(sp.net)+'</div>'+
+        '</div>'+
       '</div>'+
     '</div>';
   }).join('');
 
-  // headline + annual card
+  // Headline
   var an=stipAnnualCalc();
-  var setEl=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
+  var anSplit=stipSplit(an.annual,cfg);
+  var setEl=function(id,v){var el=document.getElementById(id);if(el)el.textContent=v;};
   setEl('st-hd-target', stipMoney(an.pot));
   setEl('st-hd-paid',   stipMoney(an.paid||0));
   setEl('st-hd-annual', stipMoney(an.annual));
   var tu=document.getElementById('st-hd-trueup');
   if(tu){ tu.textContent=an.trueup==null?'—':(an.trueup>=0?'+':'−')+'$'+fmtNum(Math.abs(an.trueup)); tu.style.color=an.trueup==null?'':(an.trueup>=0?'#16a34a':'var(--red)'); }
 
+  // Projection
+  var pb=document.getElementById('stip-projection-body');
+  if(pb){
+    var pr=stipProjection();
+    if(pr.done){ pb.innerHTML='<span style="color:#16a34a;font-weight:600">All four quarters are logged — see the year-end true-up below.</span>'; }
+    else if(!(stipEntries.Q1||stipEntries.Q2||stipEntries.Q3||stipEntries.Q4)){ pb.innerHTML='<span style="color:var(--text4)">Log a quarter to see what you need next to still land full bonus.</span>'; }
+    else {
+      pb.innerHTML='<div style="font-size:12px;color:var(--text4);margin-bottom:10px">To average <strong>100%</strong> across the year on each KPI, aim for these in <strong>'+pr.remaining.join(', ')+'</strong>:</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">'+
+        pr.kpis.map(function(x){
+          var reachable=x.per<=cfg.cap;
+          return '<div class="ameta"><div class="ameta-lbl">'+escH(x.name)+(x.enteredAvg!=null?' (so far '+stipPct(x.enteredAvg)+')':'')+'</div>'+
+            '<div class="ameta-val" style="color:'+(x.per<=100?'#16a34a':reachable?'#d97706':'var(--red)')+'">'+
+            (x.per<=0?'Already there ✓':'need '+stipPct(x.per)+' each')+
+            '</div>'+(!reachable&&x.per>0?'<div style="font-size:10px;color:var(--red)">above the '+cfg.cap+'% stretch cap</div>':'')+'</div>';
+        }).join('')+
+        '</div>';
+    }
+  }
+
+  // Year-end card
   var ab=document.getElementById('stip-annual-body');
   if(ab){
     if(an.annual==null){ ab.innerHTML='<span style="color:var(--text4)">Enter at least one quarter above to see the year-end picture.</span>'; }
     else{
-      var sup=an.annual*stipCfg.superPct/100, net=an.annual*(1-stipCfg.taxPct/100);
       ab.innerHTML=
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">'+
-        an.kpis.map(function(x){return '<div class="ameta"><div class="ameta-lbl">'+escH(x.name)+' (full year)</div><div class="ameta-val" style="color:'+achColor(x.ach)+'">'+(x.ach!=null?x.ach.toFixed(1)+'% → pays '+x.pay.toFixed(0)+'%':'—')+'</div></div>';}).join('')+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">'+
+        an.kpis.map(function(x){return '<div class="ameta"><div class="ameta-lbl">'+escH(x.name)+' (year avg)</div><div class="ameta-val" style="color:'+achColorG(x.ach,cfg)+'">'+(x.ach!=null?stipPct(x.ach)+' → pays '+stipPct(x.pay):'—')+'</div></div>';}).join('')+
         '</div>'+
-        '<table class="kbd-table" style="max-width:520px">'+
-        '<tr><td>Annual entitlement (full-year numbers, up to 200%)</td><td><strong>'+stipMoney(an.annual)+'</strong></td></tr>'+
+        '<table class="kbd-table" style="max-width:560px">'+
+        '<tr><td>Annual entitlement (full-year average, up to 200%)</td><td><strong>'+stipMoney(an.annual)+'</strong></td></tr>'+
         '<tr><td>Already paid across quarters</td><td>'+stipMoney(an.paid)+'</td></tr>'+
         '<tr><td><strong>Year-end true-up '+(an.trueup>=0?'(they pay you)':'(you owe back)')+'</strong></td><td style="color:'+(an.trueup>=0?'#16a34a':'var(--red)')+'"><strong>'+(an.trueup>=0?'+':'−')+'$'+fmtNum(Math.abs(an.trueup))+'</strong></td></tr>'+
-        '<tr><td>Annual total incl super ('+stipCfg.superPct+'%)</td><td>'+stipMoney(an.annual+sup)+'</td></tr>'+
-        '<tr><td>Annual net after tax (−'+stipCfg.taxPct+'%)</td><td>'+stipMoney(net)+'</td></tr>'+
+        '<tr><td>− Super ('+cfg.superPct+'%) on the annual bonus</td><td style="color:var(--red)">−'+fmtNum(anSplit.super)+'</td></tr>'+
+        '<tr><td>− Tax ('+cfg.taxPct+'%)</td><td style="color:var(--red)">−'+fmtNum(anSplit.tax)+'</td></tr>'+
+        '<tr><td><strong>Annual net in pocket</strong></td><td style="color:#16a34a"><strong>'+stipMoney(anSplit.net)+'</strong></td></tr>'+
         '</table>';
     }
   }
 
-  // charts
+  // Charts
   var qc=document.getElementById('stip-chart-quarters');
   if(qc){
-    var vals=['Q1','Q2','Q3','Q4'].map(function(q){return stipQuarterCalc(q).gross||0;});
+    var vals=STIP_QS.map(function(q){return stipQuarterCalc(q).gross||0;});
     var mx=Math.max.apply(null,vals.concat([1]));
-    qc.innerHTML=['Q1','Q2','Q3','Q4'].map(function(q,i){
+    qc.innerHTML=STIP_QS.map(function(q,i){
       var h=Math.round(vals[i]/mx*95);
       return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">'+
         '<div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:3px">'+(vals[i]?'$'+fmtNum(vals[i]):'')+'</div>'+
-        '<div style="width:70%;height:'+Math.max(h,2)+'px;background:linear-gradient(180deg,var(--accent),var(--accent-dark));border-radius:5px 5px 0 0"></div>'+
+        '<div style="width:66%;height:'+Math.max(h,2)+'px;background:linear-gradient(180deg,var(--accent),var(--accent-dark));border-radius:5px 5px 0 0"></div>'+
         '<div style="font-size:10px;color:var(--text4);margin-top:4px;font-weight:700">'+q+'</div>'+
       '</div>';
     }).join('');
@@ -6911,15 +6988,14 @@ function stipRender(){
       return '<div class="val-bar-item">'+
         '<span class="val-bar-label" title="'+escH(x.name)+'">'+escH(x.name.substring(0,10))+'</span>'+
         '<div class="val-bar-track" style="position:relative">'+
-          '<div class="val-bar-fill" style="width:'+(pct/150*100).toFixed(1)+'%;background:'+achColor(x.ach)+'"></div>'+
-          '<div style="position:absolute;left:'+(100/150*100).toFixed(1)+'%;top:-2px;bottom:-2px;width:2px;background:var(--text4);opacity:.5" title="100% target"></div>'+
+          '<div class="val-bar-fill" style="width:'+(pct/150*100).toFixed(1)+'%;background:'+achColorG(x.ach,cfg)+'"></div>'+
+          '<div style="position:absolute;left:66.6%;top:-2px;bottom:-2px;width:2px;background:var(--text4);opacity:.5" title="100% target"></div>'+
         '</div>'+
-        '<span class="val-bar-amt">'+(x.ach!=null?x.ach.toFixed(1)+'%':'—')+'</span>'+
+        '<span class="val-bar-amt">'+stipPct(x.ach)+'</span>'+
       '</div>';
     }).join('');
   }
-}
-</script>
+}</script>
 <script>
 // Register the service worker for offline support (only when served over http/https)
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
