@@ -1303,16 +1303,40 @@ function audit(action, detail){
   }).then(function(){},function(){});
 }
 
+// ── Compression for large synced values (price file is ~8MB JSON) ──
+async function gzWrap(json){
+  if(typeof CompressionStream==='undefined') return null;
+  var cs=new CompressionStream('gzip');
+  var w=cs.writable.getWriter(); w.write(new TextEncoder().encode(json)); w.close();
+  var buf=await new Response(cs.readable).arrayBuffer();
+  var bytes=new Uint8Array(buf), bin='', CH=0x8000;
+  for(var i=0;i<bytes.length;i+=CH){ bin+=String.fromCharCode.apply(null, bytes.subarray(i,i+CH)); }
+  return {__gz:1, b64: btoa(bin)};
+}
+async function gzUnwrap(v){
+  if(!v||v.__gz!==1) return v;
+  if(typeof DecompressionStream==='undefined') return v;
+  var bin=atob(v.b64), bytes=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  var ds=new DecompressionStream('gzip');
+  var w=ds.writable.getWriter(); w.write(bytes); w.close();
+  var buf=await new Response(ds.readable).arrayBuffer();
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+
 // ── Cloud write-through with offline queue ────────────
 async function cloudPut(store,key,val){
   if(!sb||!sbUser) return;
   try{
+    // Compress big payloads (Supabase rejects multi-MB rows)
+    var stored=val;
+    try{ var js=JSON.stringify(val); if(js && js.length>300000){ var wrapped=await gzWrap(js); if(wrapped) stored=wrapped; } }catch(e){}
     if(isSharedKey(store,key)){
       if(!isAdmin) return; // RLS would reject anyway
-      const {error}=await sb.from('shared_kv').upsert({store:store,key:String(key),val:val,updated_at:new Date().toISOString()});
+      const {error}=await sb.from('shared_kv').upsert({store:store,key:String(key),val:stored,updated_at:new Date().toISOString()});
       if(error) throw error;
     }else{
-      const {error}=await sb.from('user_kv').upsert({owner_id:sbUser.id,store:store,key:String(key),val:val,updated_at:new Date().toISOString()});
+      const {error}=await sb.from('user_kv').upsert({owner_id:sbUser.id,store:store,key:String(key),val:stored,updated_at:new Date().toISOString()});
       if(error) throw error;
     }
     await removePending(store,key);
@@ -1373,7 +1397,7 @@ async function syncFromCloud(){
     // Fetch stale rows in batches
     for(const r of stale){
       const {data,error}=await sb.from('shared_kv').select('val').match({store:r.store,key:r.key}).single();
-      if(!error&&data){ await dbPutRaw(r.store,maybeNum(r.store,r.key), data.val); }
+      if(!error&&data){ await dbPutRaw(r.store,maybeNum(r.store,r.key), await gzUnwrap(data.val)); }
     }
     await dbPutRaw('settings','_shared_ts',newTs);
     // Remove shared rows deleted on the server
@@ -1382,7 +1406,7 @@ async function syncFromCloud(){
     // Per-user data — always pull fully (small)
     const {data:mine,error:uErr}=await sb.from('user_kv').select('store,key,val').eq('owner_id',sbUser.id);
     if(uErr) throw uErr;
-    for(const r of (mine||[])){ await dbPutRaw(r.store,r.key,r.val); }
+    for(const r of (mine||[])){ await dbPutRaw(r.store,r.key, await gzUnwrap(r.val)); }
     cloudReady=true;
   }catch(e){
     console.warn('Cloud sync failed — using local cache:',e.message||e);
