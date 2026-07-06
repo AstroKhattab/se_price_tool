@@ -3522,29 +3522,15 @@ async function exportQuoteTemplate(lines, projName, totOffer){
       ws.spliceRows(DATA_START+n, TEMPLATE_ROWS-n);
     }
 
-    var fmtDisc=function(l){
-      if(l.listPrice==null||l.offerPrice==null||l.listPrice<=0) return '0.0';
-      var p=(l.listPrice-l.offerPrice)/l.listPrice*100;
-      if(p<=0) return '0.0';
-      var s=p.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
-      return s.indexOf('.')===-1 ? s+'.0' : s;
-    };
+    // Fill ONLY # / Qty / Product / Description — leave every other column blank
     lines.forEach(function(l,i){
       var r=ws.getRow(DATA_START+i);
-      var listU=l.listPrice!=null?l.listPrice:null;
-      var offU=l.offerPrice, offE=l.lineOffer;
-      var disc=fmtDisc(l);
-      var vals=[i+1, l.qty, 'PCE', l.partNum, 'PRHAU01'+l.partNum, l.desc||'', 'SAP', 'Standard',
-        listU!=null?listU:'', listU!=null?listU*l.qty:'', disc, offU!=null?offU:'', offE!=null?offE:'', '%', '0.0', disc,
-        offU!=null?offU:'', offE!=null?offE:'', '0.0', offU!=null?offU:'', offE!=null?offE:'', '0.0', offU!=null?offU:'', offE!=null?offE:''];
-      vals.forEach(function(v,ci){ r.getCell(ci+1).value=v; });
+      r.getCell(1).value=i+1;          // #
+      r.getCell(2).value=l.qty;        // Qty
+      r.getCell(4).value=l.partNum;    // Product
+      r.getCell(6).value=l.desc||'';   // Description
       r.commit&&r.commit();
     });
-
-    // Total (Ext. Net Price column R) on the merged totals row after the data
-    var totRow=DATA_START+n;
-    var tot=lines.reduce(function(s,l){return s+(l.lineOffer||0);},0);
-    try{ ws.getCell(totRow,18).value=tot; }catch(e){}
 
     var out=await wb.xlsx.writeBuffer();
     var fname=((qnum?qnum+'_':'')+(projName||'Quote')).replace(/[^a-z0-9\-]/gi,'_')+'.xlsx';
