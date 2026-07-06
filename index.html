@@ -3423,8 +3423,8 @@ function projExport(fmt){
       .replace(/\{creator\}/g, brand.creator||'');};
     var intro=fill(brand.emailIntro).replace(/\n/g,'<br>');
     var outro=fill(brand.emailOutro).replace(/\n/g,'<br>');
-    var th='padding:8px 14px;border:1px solid #d5d9de;background:#3DCD58;color:#ffffff;font-size:13px;text-align:left;font-family:Arial,sans-serif';
-    var td='padding:7px 14px;border:1px solid #d5d9de;font-size:13px;font-family:Arial,sans-serif;color:#202124';
+    var th='padding:8px 14px;border:1px solid #d5d9de;background:#3DCD58;color:#ffffff;font-size:13px;text-align:center;font-family:Arial,sans-serif';
+    var td='padding:7px 14px;border:1px solid #d5d9de;font-size:13px;font-family:Arial,sans-serif;color:#202124;text-align:center';
     // Pricing-source label per line: GMI tier, discount given, or blank when sold at screen price
     var gmiTierLabel = tier; // 'Under $30K' / 'Over $30K' (already computed above)
     var srcLabel=function(l){
@@ -3445,19 +3445,19 @@ function projExport(fmt){
       var bg=i%2?'background:#f5faf6;':'';
       return '<tr>'+
         '<td style="'+td+bg+'">'+escH(l.partNum)+'</td>'+
-        '<td style="'+td+bg+'text-align:center">'+l.qty+'</td>'+
-        '<td style="'+td+bg+'text-align:right;font-weight:bold">$'+fmtNum(l.offerPrice)+'</td>'+
+        '<td style="'+td+bg+'">'+l.qty+'</td>'+
+        '<td style="'+td+bg+'font-weight:bold">$'+fmtNum(l.offerPrice)+'</td>'+
         '<td style="'+td+bg+'color:#5f6368;font-size:12px">'+escH(srcLabel(l))+'</td>'+
       '</tr>';
     }).join('');
-    var html='<div style="font-family:Arial,sans-serif;font-size:13px;color:#202124">'+
-      '<p>'+intro+'</p>'+
-      '<table style="border-collapse:collapse;margin:10px 0">'+
+    var html='<div style="font-family:Arial,sans-serif;font-size:13px;color:#202124;text-align:center">'+
+      '<p style="text-align:left">'+intro+'</p>'+
+      '<table style="border-collapse:collapse;margin:10px auto">'+
       '<tr><th style="'+th+'">Product</th><th style="'+th+'">Quantity</th><th style="'+th+'">Price (incl GST)</th><th style="'+th+'">Pricing</th></tr>'+
       htmlRows+
-      '<tr><td style="'+td+'font-weight:bold" colspan="2">TOTAL</td><td style="'+td+'text-align:right;font-weight:bold">$'+fmtNum(totOffer)+'</td><td style="'+td+'"></td></tr>'+
+      '<tr><td style="'+td+'font-weight:bold" colspan="2">TOTAL</td><td style="'+td+'font-weight:bold">$'+fmtNum(totOffer)+'</td><td style="'+td+'"></td></tr>'+
       '</table>'+
-      '<p>'+outro+'</p></div>';
+      '<p style="text-align:left">'+outro+'</p></div>';
     var plain=fill(brand.emailIntro)+'\n\n'+activeLines.map(function(l){var s=srcLabel(l);return l.partNum+'  x'+l.qty+'  $'+fmtNum(l.offerPrice)+(s?'  ('+s+')':'');}).join('\n')+'\nTOTAL: $'+fmtNum(totOffer)+'\n\n'+fill(brand.emailOutro);
     if(navigator.clipboard&&window.ClipboardItem){
       navigator.clipboard.write([new ClipboardItem({
@@ -3511,6 +3511,10 @@ async function exportQuoteTemplate(lines, projName, totOffer){
     var TEMPLATE_ROWS=17;            // data rows in the bundled template
     var n=lines.length;
 
+    // Wipe every template data cell first so no original part numbers survive
+    for(var wr=DATA_START; wr<DATA_START+TEMPLATE_ROWS; wr++){
+      for(var wc=1; wc<=24; wc++) ws.getRow(wr).getCell(wc).value=null;
+    }
     // Grow: duplicate the last data row (keeps all styling); shrink: remove extras
     if(n>TEMPLATE_ROWS){
       ws.duplicateRow(DATA_START+TEMPLATE_ROWS-1, n-TEMPLATE_ROWS, true);
@@ -3642,12 +3646,8 @@ async function loadSavedGMI(){
       <div class="exp-wrap">
         <button class="btn btn-green btn-sm" id="proj-export-btn" onclick="toggleProjExport(event)">⬇ Export ▾</button>
         <div class="exp-dd" id="proj-exp-dd">
-          <button class="exp-opt" onclick="projExport('xlsx')"><span>📊</span>Excel — formatted quote</button>
-          <button class="exp-opt" onclick="projExport('xlsxlist')"><span>📄</span>Excel — exact list</button>
           <button class="exp-opt" onclick="projExport('xlsxtemplate')"><span>🧾</span>Excel — quotes-team template</button>
           <button class="exp-opt" onclick="projExport('email')"><span>✉️</span>Copy email table</button>
-          <button class="exp-opt" onclick="projExport('copy')"><span>📋</span>Copy as plain text</button>
-          <button class="exp-opt" onclick="projExport('csv')"><span>📝</span>CSV</button>
         </div>
       </div>
     </div>
@@ -3722,8 +3722,8 @@ async function loadSavedGMI(){
       <div class="proj-results-title">📊 Quote Lines <span id="proj-line-count" style="font-size:12px;font-weight:400;color:var(--text4)"></span></div>
       <div class="proj-results-actions">
         <button class="btn btn-ghost btn-sm" onclick="addQuoteRow()">+ Add Row</button>
-        <button class="btn btn-ghost btn-sm" onclick="projExport('copy')">📋 Copy Email</button>
-        <button class="btn btn-green btn-sm" onclick="projExport('xlsx')">📊 Excel</button>
+        <button class="btn btn-ghost btn-sm" onclick="projExport('email')">✉️ Copy Email</button>
+        <button class="btn btn-green btn-sm" onclick="projExport('xlsxtemplate')">🧾 Excel</button>
       </div>
     </div>
     <div class="proj-table-scroll">
