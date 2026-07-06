@@ -3993,7 +3993,8 @@ async function loadSavedGMI(){
       <div class="proj-field"><label>Annual Salary ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 120000" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 35" step="0.5" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Super rate (%)</label><input type="number" class="proj-input" id="st-super" value="12" step="0.5" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Tax deduction (%)</label><input type="number" class="proj-input" id="st-tax" value="30" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Super treatment</label><select class="proj-select" id="st-supermode" onchange="stipSaveConfig()"><option value="ontop">Added on top (Super Guarantee)</option><option value="carve">Carved out of bonus</option></select></div>
+      <div class="proj-field"><label>Tax on bonus (%)</label><input type="number" class="proj-input" id="st-tax" value="32.73" step="0.01" onchange="stipSaveConfig()"><span style="font-size:10px;color:var(--text4)">marginal rate — from your payslip</span></div>
       <div class="proj-field"><label>Zero-payout floor (%)</label><input type="number" class="proj-input" id="st-floor" value="75" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Max stretch (%)</label><input type="number" class="proj-input" id="st-cap" value="125" onchange="stipSaveConfig()"></div>
     </div>
@@ -6806,7 +6807,7 @@ async function capMigrateIds(){
 var stipCfg=null, stipEntries=null, stipYear=new Date().getFullYear();
 
 function stipDefaults(){
-  return {salary:0,bonusPct:35,superPct:12,taxPct:30,floor:75,cap:125,
+  return {salary:0,bonusPct:40,superPct:12,taxPct:32.73,floor:75,cap:125,superMode:'ontop',
     k1name:'KPI 1',k1w:40,k2name:'KPI 2',k2w:40,k3name:'KPI 3',k3w:20};
 }
 function stipCurve(achPct,cfg,capAt100){
@@ -6819,14 +6820,25 @@ function stipCurve(achPct,cfg,capAt100){
   if(capAt100&&p>100) p=100;
   return p;
 }
-// Split a gross bonus $ into super / after-super / tax / net
+// Split a computed bonus into super / tax / net.
+// superMode 'ontop' (default, matches AU Super Guarantee): the computed bonus
+// is the taxable cash; super is 12% added on top; tax is on the full cash.
+// superMode 'carve': the computed figure already includes super (super = 12/112).
 function stipSplit(gross,cfg){
-  if(gross==null) return {gross:null,super:null,afterSuper:null,tax:null,net:null};
-  var sup=gross*(cfg.superPct/(100+cfg.superPct));   // super is included in the bonus
-  var afterSuper=gross-sup;
-  var tax=afterSuper*(cfg.taxPct/100);
-  var net=afterSuper-tax;
-  return {gross:gross,super:sup,afterSuper:afterSuper,tax:tax,net:net};
+  if(gross==null) return {gross:null,taxable:null,super:null,totalWithSuper:null,tax:null,net:null};
+  var sup, taxable, total;
+  if(cfg.superMode==='carve'){
+    sup=gross*(cfg.superPct/(100+cfg.superPct));
+    taxable=gross-sup;
+    total=gross;
+  } else { // ontop
+    taxable=gross;
+    sup=gross*(cfg.superPct/100);
+    total=gross+sup;
+  }
+  var tax=taxable*(cfg.taxPct/100);
+  var net=taxable-tax;
+  return {gross:gross,taxable:taxable,super:sup,totalWithSuper:total,tax:tax,net:net};
 }
 
 async function stipInit(){
@@ -6851,14 +6863,14 @@ async function stipInit(){
 function stipYearChanged(){ stipInit(); }
 
 function stipLoadConfigUI(){
-  var m={'st-salary':'salary','st-bonuspct':'bonusPct','st-super':'superPct','st-tax':'taxPct','st-floor':'floor','st-cap':'cap','st-k1name':'k1name','st-k1w':'k1w','st-k2name':'k2name','st-k2w':'k2w','st-k3name':'k3name','st-k3w':'k3w'};
-  Object.keys(m).forEach(function(id){ var el=document.getElementById(id); if(el) el.value=stipCfg[m[id]]!=null?stipCfg[m[id]]:''; });
+  var m={'st-salary':'salary','st-bonuspct':'bonusPct','st-super':'superPct','st-tax':'taxPct','st-floor':'floor','st-cap':'cap','st-supermode':'superMode','st-k1name':'k1name','st-k1w':'k1w','st-k2name':'k2name','st-k2w':'k2w','st-k3name':'k3name','st-k3w':'k3w'};
+  Object.keys(m).forEach(function(id){ var el=document.getElementById(id); if(el&&stipCfg[m[id]]!=null) el.value=stipCfg[m[id]]; });
 }
 function stipSaveConfig(){
   var num=function(id,d){ var v=parseFloat((document.getElementById(id)||{}).value); return isNaN(v)?d:v; };
   var txt=function(id,d){ return (document.getElementById(id)||{}).value||d; };
-  stipCfg={salary:num('st-salary',0),bonusPct:num('st-bonuspct',35),superPct:num('st-super',12),taxPct:num('st-tax',30),
-    floor:num('st-floor',75),cap:num('st-cap',125),
+  stipCfg={salary:num('st-salary',0),bonusPct:num('st-bonuspct',40),superPct:num('st-super',12),taxPct:num('st-tax',32.73),
+    floor:num('st-floor',75),cap:num('st-cap',125),superMode:txt('st-supermode','ontop'),
     k1name:txt('st-k1name','KPI 1'),k1w:num('st-k1w',40),
     k2name:txt('st-k2name','KPI 2'),k2w:num('st-k2w',40),
     k3name:txt('st-k3name','KPI 3'),k3w:num('st-k3w',20)};
@@ -6954,6 +6966,9 @@ function stipRender(){
       '</div>';
     }).join('');
     var sp=stipSplit(c.gross,cfg);
+    var superRow = cfg.superMode==='carve'
+      ? '<div style="color:var(--text3)">− Super ('+cfg.superPct+'%, in bonus)</div><div style="text-align:right;color:var(--red)">'+(sp.super!=null?'−'+fmtNum(sp.super):'—')+'</div>'
+      : '<div style="color:var(--text3)">+ Super ('+cfg.superPct+'%, on top)</div><div style="text-align:right;color:#1d4ed8">'+(sp.super!=null?'+'+fmtNum(sp.super):'—')+'</div>';
     return '<div class="acard" style="margin-bottom:0">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
         '<div style="font-size:16px;font-weight:800">'+q+' <span style="font-size:11px;font-weight:400;color:var(--text4)">'+stipYear+'</span></div>'+
@@ -6963,10 +6978,11 @@ function stipRender(){
       rows+
       '<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">'+
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px">'+
-          '<div style="color:var(--text3)">Bonus (gross)</div><div style="text-align:right;font-weight:800;color:var(--accent-dark)">'+stipMoney(sp.gross)+'</div>'+
-          '<div style="color:var(--text3)">− Super ('+cfg.superPct+'%)</div><div style="text-align:right;color:var(--red)">'+(sp.super!=null?'−'+fmtNum(sp.super):'—')+'</div>'+
+          '<div style="color:var(--text3)">Bonus (taxable)</div><div style="text-align:right;font-weight:800;color:var(--accent-dark)">'+stipMoney(sp.taxable)+'</div>'+
           '<div style="color:var(--text3)">− Tax ('+cfg.taxPct+'%)</div><div style="text-align:right;color:var(--red)">'+(sp.tax!=null?'−'+fmtNum(sp.tax):'—')+'</div>'+
           '<div style="font-weight:800;color:var(--text)">Net in pocket</div><div style="text-align:right;font-weight:800;color:#16a34a">'+stipMoney(sp.net)+'</div>'+
+          superRow+
+          '<div style="color:var(--text3)">Total incl super</div><div style="text-align:right;color:var(--text2)">'+stipMoney(sp.totalWithSuper)+'</div>'+
         '</div>'+
       '</div>'+
     '</div>';
@@ -7012,12 +7028,13 @@ function stipRender(){
         an.kpis.map(function(x){return '<div class="ameta"><div class="ameta-lbl">'+escH(x.name)+' (year avg)</div><div class="ameta-val" style="color:'+achColorG(x.ach,cfg)+'">'+(x.ach!=null?stipPct(x.ach)+' → pays '+stipPct(x.pay):'—')+'</div></div>';}).join('')+
         '</div>'+
         '<table class="kbd-table" style="max-width:560px">'+
-        '<tr><td>Annual entitlement (full-year average, up to 200%)</td><td><strong>'+stipMoney(an.annual)+'</strong></td></tr>'+
+        '<tr><td>Annual bonus entitlement (full-year average, up to 200%)</td><td><strong>'+stipMoney(an.annual)+'</strong></td></tr>'+
         '<tr><td>Already paid across quarters</td><td>'+stipMoney(an.paid)+'</td></tr>'+
         '<tr><td><strong>Year-end true-up '+(an.trueup>=0?'(they pay you)':'(you owe back)')+'</strong></td><td style="color:'+(an.trueup>=0?'#16a34a':'var(--red)')+'"><strong>'+(an.trueup>=0?'+':'−')+'$'+fmtNum(Math.abs(an.trueup))+'</strong></td></tr>'+
-        '<tr><td>− Super ('+cfg.superPct+'%) on the annual bonus</td><td style="color:var(--red)">−'+fmtNum(anSplit.super)+'</td></tr>'+
         '<tr><td>− Tax ('+cfg.taxPct+'%)</td><td style="color:var(--red)">−'+fmtNum(anSplit.tax)+'</td></tr>'+
         '<tr><td><strong>Annual net in pocket</strong></td><td style="color:#16a34a"><strong>'+stipMoney(anSplit.net)+'</strong></td></tr>'+
+        '<tr><td>'+(cfg.superMode==='carve'?'Super included ':'Super on top ')+'('+cfg.superPct+'%)</td><td style="color:#1d4ed8">'+(cfg.superMode==='carve'?'':'+')+fmtNum(anSplit.super)+'</td></tr>'+
+        '<tr><td>Total value incl super</td><td>'+stipMoney(anSplit.totalWithSuper)+'</td></tr>'+
         '</table>';
     }
   }
