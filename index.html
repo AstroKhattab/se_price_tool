@@ -3039,6 +3039,12 @@ function removeQuoteRow(idx) {
 function importPastedLines() {
   var raw = document.getElementById('pj-paste').value.trim();
   if (!raw) { toast('Nothing to import'); return; }
+  var existing=quoteLines.filter(function(l){return l.partNum&&l.partNum.trim();}).length;
+  if(existing && confirm('The quote already has '+existing+' line(s).\n\nOK = START FRESH with the pasted list\nCancel = ADD the pasted items below the existing lines')){
+    quoteLines=[];
+    currentQuoteId=null;
+    updateSaveBtn();
+  }
   var lines = raw.split('\n').map(function (l) { return l.replace(/\r/g,''); }).filter(function(l){return l.trim();});
   var added = 0;
   var isIntTok = function(t){ t=t.replace(/,/g,''); return /^\d+$/.test(t) && parseInt(t)>0 && parseInt(t)<=99999; };
@@ -3108,6 +3114,13 @@ function importQuoteFile(e){
         if(q!==-1&&p!==-1){ hdrRow=i; qtyCol=q; prodCol=p; break; }
       }
       if(hdrRow===-1){ stopLoad(); toast('⚠️ Could not find Qty/Product columns in that file',4500); return; }
+      // Replace or append? (a leftover list silently merging into a new quote is a trap)
+      var existing=quoteLines.filter(function(l){return l.partNum&&l.partNum.trim();}).length;
+      if(existing && confirm('The quote already has '+existing+' line(s).\n\nOK = START FRESH with this file\nCancel = ADD these items below the existing lines')){
+        quoteLines=[];
+        currentQuoteId=null;
+        updateSaveBtn();
+      }
       var added=0;
       for (var rI=hdrRow+1; rI<data.length; rI++){
         var row=data[rI];
