@@ -1,6 +1,6 @@
 /* Service worker: cache-first app shell so the tool loads offline after first visit.
    Bump CACHE_VERSION on every deploy to invalidate old caches. */
-const CACHE_VERSION = 'pi-v11';
+const CACHE_VERSION = 'pi-v12';
 const SHELL = [
   './',
   './index.html',

@@ -3272,8 +3272,12 @@ function padL(s,n){return String(s).substring(0,n).padStart(n);}
 
 function projExport(fmt){
   document.getElementById('proj-exp-dd').classList.remove('open');
-  var activeLines = quoteLines.filter(function(l){return l.partNum&&l.partNum.trim()&&l.offerPrice!=null;});
-  if(!activeLines.length){toast('No priced lines to export — add part numbers first');return;}
+  var typedLines = quoteLines.filter(function(l){return l.partNum&&l.partNum.trim();});
+  var activeLines = typedLines.filter(function(l){return l.offerPrice!=null;});
+  if(fmt==='xlsxtemplate'){
+    if(!typedLines.length){toast('Add part numbers first');return;}
+    activeLines = typedLines; // template export includes unpriced lines (blank prices)
+  } else if(!activeLines.length){toast('No priced lines to export — add part numbers first');return;}
   audit('export',{what:'quote',format:fmt,lines:activeLines.length});
   var projName   = document.getElementById('pj-name').value||'Project Quote';
   var wholesaler = document.getElementById('pj-wholesaler').value||'—';
