@@ -15,6 +15,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzFGN0EzQyIvPgogIDxyZWN0IHg9IjEiIHk9IjEiIHdpZHRoPSIzMCIgaGVpZ2h0PSIzMCIgcng9IjYiIGZpbGw9IiMzRENENTgiLz4KICA8cG9seWdvbiBwb2ludHM9IjE5LDQgMTEsMTcgMTYsMTcgMTMsMjggMjEsMTUgMTYsMTUiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPg==">
 <link rel="shortcut icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzFGN0EzQyIvPgogIDxyZWN0IHg9IjEiIHk9IjEiIHdpZHRoPSIzMCIgaGVpZ2h0PSIzMCIgcng9IjYiIGZpbGw9IiMzRENENTgiLz4KICA8cG9seWdvbiBwb2ludHM9IjE5LDQgMTEsMTcgMTYsMTcgMTMsMjggMjEsMTUgMTYsMTUiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPg==">
 <script src="vendor/xlsx.min.js"></script>
+<script src="vendor/exceljs.min.js" defer></script>
 <script src="vendor/supabase.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800&display=swap');
@@ -3389,61 +3390,7 @@ function projExport(fmt){
     toast('✓ Exact list exported');
   }
   else if(fmt==='xlsxtemplate'){
-    // 100% replica of the quotes-team request template (24 columns, header
-    // block, merged cells, column widths, totals row) filled with OUR pricing.
-    var qnum=(document.getElementById('pj-quotenum')||{}).value||'';
-    var fmtDisc=function(l){
-      if(l.listPrice==null||l.offerPrice==null||l.listPrice<=0) return '0.0';
-      var p=(l.listPrice-l.offerPrice)/l.listPrice*100;
-      if(p<=0) return '0.0';
-      var s=p.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
-      return s.indexOf('.')===-1 ? s+'.0' : s;
-    };
-    var pad=function(n){ var a=[]; for(var i=0;i<n;i++)a.push(''); return a; };
-    var aoa=[];
-    aoa.push(['Quote Number:','',qnum,'','','Quote Currency'].concat(pad(18)));
-    aoa.push(pad(24));
-    aoa.push(['Account Number:','','',''].concat(pad(20)));
-    aoa.push(pad(24));
-    aoa.push(['Account Name:','',projName,'','Quote status:',''].concat(pad(18)));
-    aoa.push(pad(24));
-    aoa.push(['Standard Products'].concat(pad(23)));
-    aoa.push(pad(24));
-    aoa.push(['#','Qty','Unit Measure','Product','Product Number','Description','Price Source','Price List','Unit List Price','Ext List Price','Standard Discount','Unit Price','Ext. Price','Discount Type','Value','Total Discount %','Unit Net Price','Ext. Net Price','Total Tax %','Unit Net Price incl Tax','Ext Net Price incl Tax','Rebate %','Net Net Price','Ext Net Net Price']);
-    var totalExtNet=0;
-    activeLines.forEach(function(l,i){
-      var listU = l.listPrice!=null ? l.listPrice : l.offerPrice;
-      var listE = listU!=null ? listU*l.qty : '';
-      var offU = l.offerPrice, offE = l.lineOffer;
-      totalExtNet += offE||0;
-      var disc = fmtDisc(l);
-      aoa.push([i+1, l.qty, 'PCE', l.partNum, 'PRHAU01'+l.partNum, l.desc||'', 'SAP', 'Standard',
-        listU!=null?listU:'', listE, disc, offU, offE, '%', '0.0', disc, offU, offE, '0.0', offU, offE, '0.0', offU, offE]);
-    });
-    var totRowIdx=aoa.length;
-    var totRow=pad(24); totRow[17]=totalExtNet;
-    aoa.push(totRow);
-    aoa.push(pad(24));
-
-    var ws3=XLSX.utils.aoa_to_sheet(aoa);
-    // Column widths copied from the original template
-    ws3['!cols']=[{wch:10.27},{wch:13.91},{wch:23.18},{wch:14.55},{wch:19.09},{wch:34.45},{wch:10},{wch:7.27},{wch:10.73},{wch:9.91},{wch:14.64},{wch:7.73},{wch:7.36},{wch:11.09},{wch:4.64},{wch:13},{wch:10.73},{wch:10.73},{wch:8.64},{wch:17},{wch:16.09},{wch:7.36},{wch:10.27},{wch:13}];
-    // Merged cells: header block + totals row, matching the original
-    var M=function(r1,c1,r2,c2){return {s:{r:r1,c:c1},e:{r:r2,c:c2}};};
-    var merges=[M(0,0,1,1),M(0,2,1,3),M(0,4,1,4),M(0,5,1,5),M(2,0,3,1),M(2,2,3,2),M(2,3,3,3),M(4,0,5,1),M(4,2,5,3),M(4,4,5,5),M(6,0,7,5)];
-    for(var c=0;c<24;c++) merges.push(M(totRowIdx,c,totRowIdx+1,c));
-    ws3['!merges']=merges;
-    // Number formats on money columns (ext columns use #,##0.00 like the original)
-    for(var R3=9;R3<=totRowIdx;R3++){
-      [9,12,17,20,23].forEach(function(C){var ca=XLSX.utils.encode_cell({r:R3,c:C});if(ws3[ca]&&typeof ws3[ca].v==='number'){ws3[ca].t='n';ws3[ca].z='#,##0.00';}});
-      [8,11,16,19,22].forEach(function(C){var ca=XLSX.utils.encode_cell({r:R3,c:C});if(ws3[ca]&&typeof ws3[ca].v==='number'){ws3[ca].t='n';ws3[ca].z='0.00';}});
-    }
-    var wb3=XLSX.utils.book_new();
-    var sheetName=((qnum?qnum+'_':'')+projName).replace(/[\\\/\?\*\[\]:]/g,';').slice(0,31)||'Quote';
-    XLSX.utils.book_append_sheet(wb3,ws3,sheetName);
-    var fname3=((qnum?qnum+'_':'')+(projName||'Quote')).replace(/[^a-z0-9\-]/gi,'_')+'.xlsx';
-    XLSX.writeFile(wb3,fname3);
-    toast('✓ Quotes-team template exported');
+    exportQuoteTemplate(activeLines, projName, totOffer);
   }
   else if(fmt==='email'){
     // Rich HTML table for pasting straight into Outlook/Mail
@@ -3520,6 +3467,72 @@ function projExport(fmt){
     a.click();
     toast('✓ CSV exported');
   }
+}
+
+// ── Literal-copy export: loads the real quotes-team template (bundled with
+// the app, every colour/font/border intact) and only fills in the cells. ──
+async function exportQuoteTemplate(lines, projName, totOffer){
+  try{
+    if(typeof ExcelJS==='undefined'){ toast('Template engine still loading — try again in a second'); return; }
+    startLoad();
+    var resp=await fetch('assets/quote_template.xlsx');
+    if(!resp.ok) throw new Error('template file missing');
+    var buf=await resp.arrayBuffer();
+    var wb=new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    var ws=wb.worksheets[0];
+    var qnum=(document.getElementById('pj-quotenum')||{}).value||'';
+
+    // Header block
+    ws.getCell('C1').value=qnum;
+    ws.getCell('C3').value='';
+    ws.getCell('C5').value=projName||'';
+
+    var DATA_START=10;               // first data row (1-based)
+    var TEMPLATE_ROWS=17;            // data rows in the bundled template
+    var n=lines.length;
+
+    // Grow: duplicate the last data row (keeps all styling); shrink: remove extras
+    if(n>TEMPLATE_ROWS){
+      ws.duplicateRow(DATA_START+TEMPLATE_ROWS-1, n-TEMPLATE_ROWS, true);
+    } else if(n<TEMPLATE_ROWS){
+      ws.spliceRows(DATA_START+n, TEMPLATE_ROWS-n);
+    }
+
+    var fmtDisc=function(l){
+      if(l.listPrice==null||l.offerPrice==null||l.listPrice<=0) return '0.0';
+      var p=(l.listPrice-l.offerPrice)/l.listPrice*100;
+      if(p<=0) return '0.0';
+      var s=p.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
+      return s.indexOf('.')===-1 ? s+'.0' : s;
+    };
+    lines.forEach(function(l,i){
+      var r=ws.getRow(DATA_START+i);
+      var listU=l.listPrice!=null?l.listPrice:null;
+      var offU=l.offerPrice, offE=l.lineOffer;
+      var disc=fmtDisc(l);
+      var vals=[i+1, l.qty, 'PCE', l.partNum, 'PRHAU01'+l.partNum, l.desc||'', 'SAP', 'Standard',
+        listU!=null?listU:'', listU!=null?listU*l.qty:'', disc, offU!=null?offU:'', offE!=null?offE:'', '%', '0.0', disc,
+        offU!=null?offU:'', offE!=null?offE:'', '0.0', offU!=null?offU:'', offE!=null?offE:'', '0.0', offU!=null?offU:'', offE!=null?offE:''];
+      vals.forEach(function(v,ci){ r.getCell(ci+1).value=v; });
+      r.commit&&r.commit();
+    });
+
+    // Total (Ext. Net Price column R) on the merged totals row after the data
+    var totRow=DATA_START+n;
+    var tot=lines.reduce(function(s,l){return s+(l.lineOffer||0);},0);
+    try{ ws.getCell(totRow,18).value=tot; }catch(e){}
+
+    var out=await wb.xlsx.writeBuffer();
+    var fname=((qnum?qnum+'_':'')+(projName||'Quote')).replace(/[^a-z0-9\-]/gi,'_')+'.xlsx';
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    a.download=fname;
+    a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},4000);
+    stopLoad();
+    toast('✓ Quotes-team template exported — exact copy');
+  }catch(err){ stopLoad(); console.error(err); toast('⚠️ Template export failed: '+err.message,5000); }
 }
 
 async function loadSavedGMI(){
