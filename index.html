@@ -972,6 +972,15 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
         <div class="bset-row"><div class="bset-lbl">Remove Logo</div><div class="bset-ctrl"><button class="btn btn-ghost btn-sm" onclick="removeLogo()">✕ Remove</button></div></div>
       </div>
       <div class="acard">
+        <div class="acard-title">✉️ Email Template <span style="font-size:11px;font-weight:400;color:var(--text4);margin-left:6px">used by Project Pricing → Export → Copy email table</span></div>
+        <p style="font-size:12px;color:var(--text4);margin-bottom:10px;line-height:1.6">Placeholders you can use: <code>{project}</code> <code>{quote_num}</code> <code>{total}</code> <code>{valid_to}</code> <code>{wholesaler}</code> <code>{contractor}</code> <code>{creator}</code></p>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">Text BEFORE the price table</div>
+        <textarea class="paste-textarea" id="b-email-intro" style="min-height:70px;margin-bottom:12px"></textarea>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">Text AFTER the price table</div>
+        <textarea class="paste-textarea" id="b-email-outro" style="min-height:90px"></textarea>
+        <button class="btn btn-green btn-sm" style="margin-top:10px;min-height:44px" onclick="saveBrand();toast('✓ Email template saved')">💾 Save Template</button>
+      </div>
+      <div class="acard">
         <div class="acard-title">🌗 Theme</div>
         <div class="bset-row">
           <div class="bset-lbl">Color Scheme</div>
@@ -1226,7 +1235,7 @@ async function dbDel(s,k){ await dbDelRaw(s,k); cloudDel(s,k); }
 let allRows=[],headers=[],colMap={},filteredRows=[],displayCols=[];
 let selRows=new Set(),curPage=1,pageSize=100,sortCI=-1,sortDir=1;
 let debT,filterState={},isAdmin=false,isUser=false;
-let brand={toolName:'Price Intelligence Tool',company:'Schneider Electric',creator:'',accentColor:'#3DCD58',theme:'light',exportHeader:'Schneider Electric — Price List',seUrl:'https://www.se.com/au/en/search/?q={part_raw}&submit+search+query=Search',clipsalUrl:'https://www.clipsal.com/products/detail?CatNo={part_raw}',dsUrl:'',clipsalDsUrl:'',exportLinks:{productLink:true}};
+let brand={toolName:'Price Intelligence Tool',company:'Schneider Electric',creator:'',accentColor:'#3DCD58',theme:'light',exportHeader:'Schneider Electric — Price List',emailIntro:'Hi,\n\nPlease find our special pricing for {project} below:',emailOutro:'Total (incl GST): {total}\nPrices are valid until {valid_to}.\n\nPlease let me know if you have any questions.\n\nBest regards,\n{creator}',seUrl:'https://www.se.com/au/en/search/?q={part_raw}&submit+search+query=Search',clipsalUrl:'https://www.clipsal.com/products/detail?CatNo={part_raw}',dsUrl:'',clipsalDsUrl:'',exportLinks:{productLink:true}};
 let filterConfig={};
 let colWidths={};
 
@@ -2466,6 +2475,8 @@ async function saveBrand(){
   const cr=document.getElementById('b-creator');if(cr) brand.creator=cr.value;
   const eh=document.getElementById('b-exphdr');if(eh&&eh.value) brand.exportHeader=eh.value;
   const su=document.getElementById('b-se-url');if(su&&su.value) brand.seUrl=su.value;
+  const ei=document.getElementById('b-email-intro');if(ei&&ei.value) brand.emailIntro=ei.value;
+  const eo=document.getElementById('b-email-outro');if(eo&&eo.value) brand.emailOutro=eo.value;
   const cu=document.getElementById('b-clipsal-url');if(cu&&cu.value) brand.clipsalUrl=cu.value;
   await dbPut('settings','brand',brand);
   applyBrandDisplay();
@@ -2483,6 +2494,8 @@ function loadBrandUI(){
   if(document.getElementById('b-creator')) document.getElementById('b-creator').value=brand.creator||'';
   if(document.getElementById('b-exphdr')) document.getElementById('b-exphdr').value=brand.exportHeader||'';
   if(document.getElementById('b-se-url')) document.getElementById('b-se-url').value=brand.seUrl||'';
+  if(document.getElementById('b-email-intro')) document.getElementById('b-email-intro').value=brand.emailIntro||'';
+  if(document.getElementById('b-email-outro')) document.getElementById('b-email-outro').value=brand.emailOutro||'';
   if(document.getElementById('b-clipsal-url')) document.getElementById('b-clipsal-url').value=brand.clipsalUrl||'';
   if(document.getElementById('b-accent')) document.getElementById('b-accent').value=brand.accentColor||'#3DCD58';
   // Sync export toggle
@@ -3025,34 +3038,40 @@ function removeQuoteRow(idx) {
 function importPastedLines() {
   var raw = document.getElementById('pj-paste').value.trim();
   if (!raw) { toast('Nothing to import'); return; }
-  var lines = raw.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+  var lines = raw.split('\n').map(function (l) { return l.replace(/\r/g,''); }).filter(function(l){return l.trim();});
   var added = 0;
+  var isIntTok = function(t){ t=t.replace(/,/g,''); return /^\d+$/.test(t) && parseInt(t)>0 && parseInt(t)<=99999; };
+  var isPartTok = function(t){ return /[A-Za-z]/.test(t) && /\d/.test(t) && t.length>=3; };
   lines.forEach(function (line) {
-    // Simple split: last token that is a pure number = qty, rest = part number
-    line = line.replace(/\t/g, ' ').replace(/,/g, ' ').replace(/\s+/g, ' ');
-    var tokens = line.split(' ');
-    var qty = 1;
-    var partTokens = [];
-    // Check if last token is a number
-    var last = tokens[tokens.length - 1];
-    var lastN = parseInt(last);
-    if (!isNaN(lastN) && lastN > 0 && lastN <= 99999 && !/[a-z]/i.test(last)) {
-      qty = lastN;
-      partTokens = tokens.slice(0, -1);
-    } else {
-      // Check if first token is a number
-      var first = tokens[0];
-      var firstN = parseInt(first);
-      if (!isNaN(firstN) && firstN > 0 && firstN <= 99999 && !/[a-z]/i.test(first)) {
-        qty = firstN;
-        partTokens = tokens.slice(1);
-      } else {
-        partTokens = tokens;
+    var qty = 1, partNum = '';
+    // Tab-separated rows copied from Excel: pick the qty and product columns
+    if (line.indexOf('\t') !== -1) {
+      var cells = line.split('\t').map(function(c){return c.trim();});
+      var low = cells.join(' ').toLowerCase();
+      if (low.indexOf('qty') !== -1 && low.indexOf('product') !== -1) return; // header row
+      // qty: first integer cell that isn't a long row-number sequence; part: first code-looking cell
+      var ints = cells.filter(isIntTok);
+      var parts = cells.filter(isPartTok);
+      if (!parts.length) return;
+      // Prefer the SHORT product code over the long "Product Number" (PRHAU01...)
+      parts.sort(function(a,b){ return a.length - b.length; });
+      partNum = parts[0];
+      if (ints.length === 1) qty = parseInt(ints[0]);
+      else if (ints.length > 1) {
+        // Row usually starts with a line number then qty — take the second integer
+        var idxs = []; cells.forEach(function(c,i){ if(isIntTok(c)) idxs.push(i); });
+        qty = parseInt(cells[idxs.length>1 ? idxs[1] : idxs[0]]);
       }
+    } else {
+      line = line.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+      var tokens = line.split(' ');
+      var qtyTok = null, partTokens = [];
+      var last = tokens[tokens.length - 1], first = tokens[0];
+      if (tokens.length > 1 && isIntTok(last) && !isIntTok(tokens.slice(0,-1).join(''))) { qty = parseInt(last); partTokens = tokens.slice(0, -1); }
+      else if (tokens.length > 1 && isIntTok(first)) { qty = parseInt(first); partTokens = tokens.slice(1); }
+      else partTokens = tokens;
+      partNum = partTokens.join(' ').replace(/\s*[xX]\s*$/, '').trim();
     }
-    var partNum = partTokens.join(' ').trim();
-    // Remove x/X multiplier
-    partNum = partNum.replace(/\s*[xX]\s*$/, '').trim();
     if (!partNum) return;
     var row = calcOneLine(partNum, qty);
     row.partNum = partNum; // keep exactly as pasted
@@ -3062,6 +3081,61 @@ function importPastedLines() {
   document.getElementById('pj-paste').value = '';
   renderProjTable();
   toast('✓ Imported ' + added + ' lines');
+}
+
+// ── Import the quotes-team request file (.xlsx) directly ──────
+function importQuoteFile(e){
+  var f = e.target.files[0]; if (!f) return;
+  e.target.value = '';
+  startLoad();
+  var r = new FileReader();
+  var isCSV = f.name.toLowerCase().endsWith('.csv');
+  r.onload = function(ev){
+    try{
+      var data;
+      if (isCSV) data = parseCSVRaw(ev.target.result);
+      else { var wb = XLSX.read(ev.target.result, {type:'array'}); data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''}); }
+      // Find the header row: contains both a qty-like and a product-like column
+      var hdrRow=-1, qtyCol=-1, prodCol=-1;
+      for (var i=0; i<Math.min(25,data.length); i++){
+        var lower=data[i].map(function(c){return (c||'').toString().toLowerCase().trim();});
+        var q=-1, p=-1;
+        lower.forEach(function(h,ci){
+          if(q===-1 && (h==='qty'||h==='quantity'||h.indexOf('qty')===0)) q=ci;
+          if(p===-1 && (h==='product'||h==='part'||h==='part number'||h==='cat no'||h==='catalogue number')) p=ci;
+        });
+        if(q!==-1&&p!==-1){ hdrRow=i; qtyCol=q; prodCol=p; break; }
+      }
+      if(hdrRow===-1){ stopLoad(); toast('⚠️ Could not find Qty/Product columns in that file',4500); return; }
+      var added=0;
+      for (var rI=hdrRow+1; rI<data.length; rI++){
+        var row=data[rI];
+        var part=(row[prodCol]||'').toString().trim();
+        var qty=parseInt((row[qtyCol]||'').toString().replace(/[^0-9]/g,''));
+        if(!part||!/[A-Za-z0-9]/.test(part)) continue;
+        if(isNaN(qty)||qty<1) qty=1;
+        var line=calcOneLine(part,qty);
+        line.partNum=part;
+        quoteLines.push(line);
+        added++;
+      }
+      // Pre-fill project name from the sheet header block if present
+      try{
+        for(var i2=0;i2<hdrRow;i2++){
+          var lbl=(data[i2][0]||'').toString().toLowerCase();
+          var nameEl=document.getElementById('pj-name');
+          if(lbl.indexOf('account name')!==-1&&nameEl&&!nameEl.value){ var v=data[i2].find(function(c,ci){return ci>0&&(c||'').toString().trim();}); if(v) nameEl.value=v.toString().trim(); }
+          var qnEl=document.getElementById('pj-quotenum');
+          if(lbl.indexOf('quote number')!==-1&&qnEl){ var v2=data[i2].find(function(c,ci){return ci>0&&(c||'').toString().trim();}); if(v2) qnEl.value=v2.toString().trim(); }
+        }
+      }catch(ex){}
+      renderProjTable();
+      stopLoad();
+      audit('dataset_uploaded',{file:f.name,rows:added,type:'quote request import'});
+      toast(added? '✓ Imported '+added+' lines from '+f.name : '⚠️ No product lines found');
+    }catch(err){ stopLoad(); toast('⚠️ Could not read that file: '+err.message,4500); }
+  };
+  if (isCSV) r.readAsText(f); else r.readAsArrayBuffer(f);
 }
 
 // ── clearQuote (already defined above, just reset quoteLines) ──
@@ -3293,6 +3367,62 @@ function projExport(fmt){
       var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);toast('✓ Copied!');
     }
   }
+  else if(fmt==='xlsxlist'){
+    // Exact list: mirrors the request layout with the new pricing
+    var wb2=XLSX.utils.book_new();
+    var rows2=[['#','Qty','Product','Description','Unit Price (incl GST)','Ext Price (incl GST)']];
+    activeLines.forEach(function(l,i){
+      rows2.push([i+1,l.qty,l.partNum,l.desc||'',l.offerPrice!=null?l.offerPrice:'',l.lineOffer!=null?l.lineOffer:'']);
+    });
+    rows2.push(['','','','TOTAL','',totOffer]);
+    var ws2=XLSX.utils.aoa_to_sheet(rows2);
+    ws2['!cols']=[{wch:4},{wch:7},{wch:20},{wch:42},{wch:18},{wch:18}];
+    for(var R2=1;R2<rows2.length;R2++){
+      [4,5].forEach(function(C){var ca=XLSX.utils.encode_cell({r:R2,c:C});if(ws2[ca]&&typeof ws2[ca].v==='number'){ws2[ca].t='n';ws2[ca].z='"$"#,##0.00';}});
+    }
+    XLSX.utils.book_append_sheet(wb2,ws2,'Pricing');
+    XLSX.writeFile(wb2,(projName.replace(/[^a-z0-9]/gi,'_')||'Pricing')+'_list_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    toast('✓ Exact list exported');
+  }
+  else if(fmt==='email'){
+    // Rich HTML table for pasting straight into Outlook/Mail
+    var fill=function(t){return (t||'')
+      .replace(/\{project\}/g, projName)
+      .replace(/\{quote_num\}/g, (document.getElementById('pj-quotenum')||{}).value||'')
+      .replace(/\{total\}/g, '$'+fmtNum(totOffer))
+      .replace(/\{valid_to\}/g, dateVal||'—')
+      .replace(/\{wholesaler\}/g, wholesaler)
+      .replace(/\{contractor\}/g, contractor)
+      .replace(/\{creator\}/g, brand.creator||'');};
+    var intro=fill(brand.emailIntro).replace(/\n/g,'<br>');
+    var outro=fill(brand.emailOutro).replace(/\n/g,'<br>');
+    var th='padding:8px 14px;border:1px solid #d5d9de;background:#3DCD58;color:#ffffff;font-size:13px;text-align:left;font-family:Arial,sans-serif';
+    var td='padding:7px 14px;border:1px solid #d5d9de;font-size:13px;font-family:Arial,sans-serif;color:#202124';
+    var htmlRows=activeLines.map(function(l,i){
+      var bg=i%2?'background:#f5faf6;':'';
+      return '<tr>'+
+        '<td style="'+td+bg+'">'+escH(l.partNum)+'</td>'+
+        '<td style="'+td+bg+'text-align:center">'+l.qty+'</td>'+
+        '<td style="'+td+bg+'text-align:right;font-weight:bold">$'+fmtNum(l.offerPrice)+'</td>'+
+      '</tr>';
+    }).join('');
+    var html='<div style="font-family:Arial,sans-serif;font-size:13px;color:#202124">'+
+      '<p>'+intro+'</p>'+
+      '<table style="border-collapse:collapse;margin:10px 0">'+
+      '<tr><th style="'+th+'">Product</th><th style="'+th+'">Quantity</th><th style="'+th+'">Price (incl GST)</th></tr>'+
+      htmlRows+
+      '<tr><td style="'+td+'font-weight:bold" colspan="2">TOTAL</td><td style="'+td+'text-align:right;font-weight:bold">$'+fmtNum(totOffer)+'</td></tr>'+
+      '</table>'+
+      '<p>'+outro+'</p></div>';
+    var plain=fill(brand.emailIntro)+'\n\n'+activeLines.map(function(l){return l.partNum+'  x'+l.qty+'  $'+fmtNum(l.offerPrice);}).join('\n')+'\nTOTAL: $'+fmtNum(totOffer)+'\n\n'+fill(brand.emailOutro);
+    if(navigator.clipboard&&window.ClipboardItem){
+      navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html],{type:'text/html'}),
+        'text/plain': new Blob([plain],{type:'text/plain'})
+      })]).then(function(){toast('✓ Email table copied — paste into your email');})
+        .catch(function(){navigator.clipboard.writeText(plain).then(function(){toast('✓ Copied as text');});});
+    } else { navigator.clipboard.writeText(plain).then(function(){toast('✓ Copied as text');}); }
+  }
   else if(fmt==='csv'){
     var hdrs=['#','Part Number','Description','Qty','Unit Offer Price','Line Total','Discount/Unit','Discount %'];
     var rows=[hdrs.map(function(h){return'"'+h+'"';}).join(',')];
@@ -3355,7 +3485,9 @@ async function loadSavedGMI(){
         <button class="btn btn-green btn-sm" id="proj-export-btn" onclick="toggleProjExport(event)">⬇ Export ▾</button>
         <div class="exp-dd" id="proj-exp-dd">
           <button class="exp-opt" onclick="projExport('xlsx')"><span>📊</span>Excel — formatted quote</button>
-          <button class="exp-opt" onclick="projExport('copy')"><span>📋</span>Copy for Outlook</button>
+          <button class="exp-opt" onclick="projExport('xlsxlist')"><span>📄</span>Excel — exact list</button>
+          <button class="exp-opt" onclick="projExport('email')"><span>✉️</span>Copy email table</button>
+          <button class="exp-opt" onclick="projExport('copy')"><span>📋</span>Copy as plain text</button>
           <button class="exp-opt" onclick="projExport('csv')"><span>📝</span>CSV</button>
         </div>
       </div>
@@ -3402,8 +3534,13 @@ async function loadSavedGMI(){
       <div class="paste-title">⚡ Quick Import</div>
       <button class="btn btn-green btn-sm" onclick="importPastedLines()">Import Lines ↓</button>
     </div>
-    <div style="font-size:11px;color:var(--text4);margin-bottom:8px">Paste your list (one part per line, with optional qty). Imported directly into the table below — no guessing, no transformation.</div>
-    <textarea class="paste-textarea" id="pj-paste" style="min-height:90px" placeholder="3025-VW  200&#10;3025USBAC-VW  600&#10;3041VA-VW  500&#10;3042VA-VW  800"></textarea>
+    <div style="font-size:11px;color:var(--text4);margin-bottom:8px">Paste your list — one item per line. Works with <strong>qty first or last</strong>, and with whole rows copied from a quote-request Excel (tabs, headers and extra columns are handled automatically). Or import the request file directly:</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('pj-req-file').click()">📎 Import request file (.xlsx)</button>
+      <input type="file" id="pj-req-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importQuoteFile(event)">
+      <span style="font-size:11px;color:var(--text4)">Reads the Qty + Product columns from the quotes-team template</span>
+    </div>
+    <textarea class="paste-textarea" id="pj-paste" style="min-height:90px" placeholder="167&#9;Z4025-ZW&#10;91&#9;Z4015-ZW&#10;or:  3025-VW  200"></textarea>
   </div>
 
   <!-- SUMMARY BAR -->
