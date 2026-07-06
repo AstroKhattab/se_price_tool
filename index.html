@@ -3990,8 +3990,10 @@ async function loadSavedGMI(){
   <div class="acard" id="stip-settings" style="display:none">
     <div class="acard-title">⚙️ My Setup <span style="font-size:11px;font-weight:400;color:var(--text4)">private to you — saved per year</span></div>
     <div class="proj-setup-grid">
-      <div class="proj-field"><label>Annual Salary ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 120000" onchange="stipSaveConfig()"></div>
-      <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 35" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Salary — from April ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 96200" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Salary — before April raise ($)</label><input type="number" class="proj-input" id="st-prevsalary" placeholder="e.g. 92500 (blank = same)" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Raise effective from</label><select class="proj-select" id="st-raiseq" onchange="stipSaveConfig()"><option value="1">Q1</option><option value="2">Q2 (April)</option><option value="3">Q3</option><option value="4">Q4</option></select></div>
+      <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 40" step="0.5" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Super rate (%)</label><input type="number" class="proj-input" id="st-super" value="12" step="0.5" onchange="stipSaveConfig()"></div>
       <div class="proj-field"><label>Super treatment</label><select class="proj-select" id="st-supermode" onchange="stipSaveConfig()"><option value="ontop">Added on top (Super Guarantee)</option><option value="carve">Carved out of bonus</option></select></div>
       <div class="proj-field"><label>Tax on bonus (%)</label><input type="number" class="proj-input" id="st-tax" value="32.73" step="0.01" onchange="stipSaveConfig()"><span style="font-size:10px;color:var(--text4)">marginal rate — from your payslip</span></div>
@@ -6807,8 +6809,15 @@ async function capMigrateIds(){
 var stipCfg=null, stipEntries=null, stipYear=new Date().getFullYear();
 
 function stipDefaults(){
-  return {salary:0,bonusPct:40,superPct:12,taxPct:32.73,floor:75,cap:125,superMode:'ontop',
+  return {salary:0,prevSalary:0,raiseFromQ:2,bonusPct:40,superPct:12,taxPct:32.73,floor:75,cap:125,superMode:'ontop',
     k1name:'KPI 1',k1w:40,k2name:'KPI 2',k2w:40,k3name:'KPI 3',k3w:20};
+}
+// Salary used for a given quarter (1-4): quarters before the April raise use
+// the previous salary; from the raise quarter onward use the new salary.
+function stipQSalary(qi){
+  var rf=stipCfg.raiseFromQ||2;
+  if(qi < rf && stipCfg.prevSalary>0) return stipCfg.prevSalary;
+  return stipCfg.salary;
 }
 function stipCurve(achPct,cfg,capAt100){
   if(achPct==null||isNaN(achPct)) return null;
@@ -6863,13 +6872,13 @@ async function stipInit(){
 function stipYearChanged(){ stipInit(); }
 
 function stipLoadConfigUI(){
-  var m={'st-salary':'salary','st-bonuspct':'bonusPct','st-super':'superPct','st-tax':'taxPct','st-floor':'floor','st-cap':'cap','st-supermode':'superMode','st-k1name':'k1name','st-k1w':'k1w','st-k2name':'k2name','st-k2w':'k2w','st-k3name':'k3name','st-k3w':'k3w'};
+  var m={'st-salary':'salary','st-prevsalary':'prevSalary','st-raiseq':'raiseFromQ','st-bonuspct':'bonusPct','st-super':'superPct','st-tax':'taxPct','st-floor':'floor','st-cap':'cap','st-supermode':'superMode','st-k1name':'k1name','st-k1w':'k1w','st-k2name':'k2name','st-k2w':'k2w','st-k3name':'k3name','st-k3w':'k3w'};
   Object.keys(m).forEach(function(id){ var el=document.getElementById(id); if(el&&stipCfg[m[id]]!=null) el.value=stipCfg[m[id]]; });
 }
 function stipSaveConfig(){
   var num=function(id,d){ var v=parseFloat((document.getElementById(id)||{}).value); return isNaN(v)?d:v; };
   var txt=function(id,d){ return (document.getElementById(id)||{}).value||d; };
-  stipCfg={salary:num('st-salary',0),bonusPct:num('st-bonuspct',40),superPct:num('st-super',12),taxPct:num('st-tax',32.73),
+  stipCfg={salary:num('st-salary',0),prevSalary:num('st-prevsalary',0),raiseFromQ:num('st-raiseq',2),bonusPct:num('st-bonuspct',40),superPct:num('st-super',12),taxPct:num('st-tax',32.73),
     floor:num('st-floor',75),cap:num('st-cap',125),superMode:txt('st-supermode','ontop'),
     k1name:txt('st-k1name','KPI 1'),k1w:num('st-k1w',40),
     k2name:txt('st-k2name','KPI 2'),k2w:num('st-k2w',40),
@@ -6895,7 +6904,8 @@ var STIP_QS=['Q1','Q2','Q3','Q4'];
 // Per-quarter: KPI % entered directly; quarterly payout caps each KPI at 100%
 function stipQuarterCalc(q){
   var e=stipEntries[q]||{};
-  var pot=(stipCfg.salary*stipCfg.bonusPct/100)/4;
+  var qi=STIP_QS.indexOf(q)+1;
+  var pot=(stipQSalary(qi)*stipCfg.bonusPct/100)/4;
   var kpis=[1,2,3].map(function(k){
     var ach=e['k'+k]; if(ach===undefined) ach=null;
     var pay=stipCurve(ach,stipCfg,true);
@@ -6909,7 +6919,7 @@ function stipQuarterCalc(q){
 
 // Year-end: full-year achievement per KPI = AVERAGE of entered quarters, uncapped curve
 function stipAnnualCalc(){
-  var pot=stipCfg.salary*stipCfg.bonusPct/100;
+  var pot=0; for(var qi=1;qi<=4;qi++){ pot+=stipQSalary(qi)*stipCfg.bonusPct/100/4; }
   var kpis=[1,2,3].map(function(k){
     var sum=0,n=0;
     STIP_QS.forEach(function(q){ var e=stipEntries[q]||{}; if(e['k'+k]!=null){sum+=e['k'+k];n++;} });
@@ -6972,7 +6982,7 @@ function stipRender(){
     return '<div class="acard" style="margin-bottom:0">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
         '<div style="font-size:16px;font-weight:800">'+q+' <span style="font-size:11px;font-weight:400;color:var(--text4)">'+stipYear+'</span></div>'+
-        '<div style="font-size:10px;color:var(--text4)">quarter pot '+stipMoney(c.pot)+'</div>'+
+        '<div style="font-size:10px;color:var(--text4)" title="salary used for this quarter">$'+fmtNum(stipQSalary(STIP_QS.indexOf(q)+1))+' base · pot '+stipMoney(c.pot)+'</div>'+
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 92px 66px 66px;gap:8px;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--text4);font-weight:700;margin-bottom:5px"><div>KPI</div><div style="text-align:right">Achieved %</div><div style="text-align:right">Achv</div><div style="text-align:right">Payout</div></div>'+
       rows+
