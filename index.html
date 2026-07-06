@@ -680,6 +680,7 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
       <button class="tab-btn" id="tab-admin-btn" onclick="requireAdmin('admin')" style="display:none">⚙️ Admin <span class="tab-dot" id="admin-dot"></span></button>
       <button class="tab-btn" id="tab-project-btn" onclick="switchTab('project')">📋 Project Pricing</button>
       <button class="tab-btn" id="tab-dashboard-btn" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="tab-btn" id="tab-stip-btn" onclick="switchTab('stip')">💰 STIP</button>
       <button class="tab-btn" id="tab-cap-btn" onclick="switchTab('cap')">👥 CAP</button>
     </div>
   </div>
@@ -1448,7 +1449,7 @@ async function postLogin(session){
 }
 
 // ── Per-user tab access (admin decides which tabs each user sees) ──
-const USER_GATEABLE_TABS=['project','dashboard','cap'];
+const USER_GATEABLE_TABS=['project','dashboard','cap','stip'];
 async function applyUserTabAccess(){
   if(isAdmin) return; // admin always sees everything
   let allowed=null;
@@ -1530,7 +1531,7 @@ async function loadUsersList(){
       (isMe?'':'<button class="btn btn-ghost btn-sm" style="min-height:36px" data-uid="'+u.id+'" data-dis="'+(u.disabled?1:0)+'" onclick="adminToggleUser(this)">'+(u.disabled?'Enable':'Disable')+'</button>')+
       (isMe||u.role==='admin'?'':'<div style="flex-basis:100%;display:flex;gap:14px;padding:4px 0 0 2px;font-size:11px;color:var(--text3)">'+
         '<span style="font-weight:700">Tabs:</span>'+
-        [['project','Project Pricing'],['dashboard','Dashboard'],['cap','CAP']].map(function(t){
+        [['project','Project Pricing'],['dashboard','Dashboard'],['cap','CAP'],['stip','STIP']].map(function(t){
           const on=!userTabsCfg[u.id]||userTabsCfg[u.id].indexOf(t[0])!==-1;
           return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' data-uid="'+u.id+'" data-tab="'+t[0]+'" onchange="adminSetUserTab(this)" style="accent-color:var(--accent)">'+t[1]+'</label>';
         }).join('')+
@@ -1599,7 +1600,9 @@ function switchTab(t){
   document.getElementById('tab-'+t).classList.add('active');
   document.getElementById('tab-'+t+'-btn').classList.add('active');
   if(t==='dashboard') loadAllQuotes();
+  if(t==='project'){ loadQlPrefs().then(function(){ return loadAllQuotes(); }).then(function(){ renderQuoteList(); }); }
   if(t==='cap') renderCAP();
+  if(t==='stip') stipInit();
 }
 
 function switchAdmTab(id,btn){
@@ -3575,7 +3578,55 @@ async function loadSavedGMI(){
 
 <!-- ══ PROJECT PRICING TAB ══ -->
 <div class="tab-page" id="tab-project">
+
+<!-- Quotes list (landing view) -->
+<div id="proj-list-view">
 <div class="proj-wrap">
+  <div class="proj-header">
+    <div><div class="proj-title">📋 My Quotes <span>All your quotes in one place — create, track, send</span></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="exp-wrap">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();document.getElementById('ql-cols-dd').classList.toggle('open')">⚙️ Columns ▾</button>
+        <div class="exp-dd" id="ql-cols-dd" style="min-width:180px;padding:8px 4px" onclick="event.stopPropagation()"></div>
+      </div>
+      <button class="btn btn-green" onclick="openQuoteForm(null)">＋ New Quote</button>
+    </div>
+  </div>
+  <div class="dash-filter-row">
+    <input type="text" id="ql-search" placeholder="Search quote #, project, contractor, wholesaler…" oninput="renderQuoteList()" style="width:260px">
+    <select id="ql-status" onchange="renderQuoteList()">
+      <option value="">All statuses</option>
+      <option value="draft">📝 Draft</option>
+      <option value="sent">📤 Sent</option>
+      <option value="won">✅ Won</option>
+      <option value="lost">❌ Lost</option>
+      <option value="cancelled">🚫 Cancelled</option>
+    </select>
+    <select id="ql-sort" onchange="renderQuoteList()">
+      <option value="date-desc">Newest first</option>
+      <option value="date-asc">Oldest first</option>
+      <option value="value-desc">Highest value</option>
+    </select>
+    <span id="ql-owner-wrap" style="display:none"><select id="ql-owner" onchange="renderQuoteList()"><option value="">All users</option></select></span>
+  </div>
+  <div class="dash-table-wrap">
+    <div class="dash-table-scroll">
+      <table class="dash-table" id="ql-table"><thead id="ql-thead"></thead><tbody id="ql-tbody"></tbody></table>
+    </div>
+    <div class="dash-no-quotes" id="ql-empty" style="display:none">
+      <div class="dq-icon">📋</div>
+      <div class="dq-title">No quotes yet</div>
+      <div style="font-size:13px;color:var(--text4);margin-bottom:16px">Create your first quote to get started</div>
+      <button class="btn btn-green btn-sm" onclick="openQuoteForm(null)">＋ New Quote</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Quote form (opened from the list) -->
+<div id="proj-form-view" style="display:none">
+<div class="proj-wrap">
+  <div style="margin-bottom:10px"><button class="btn btn-ghost btn-sm" onclick="backToQuoteList()">← Back to quotes</button></div>
 
   <!-- HEADER -->
   <div class="proj-header">
@@ -3696,6 +3747,7 @@ async function loadSavedGMI(){
     </div>
   </div>
 
+</div>
 </div>
 </div>
 
@@ -3877,60 +3929,73 @@ async function loadSavedGMI(){
 
   <!-- ── SECTION 2: CAP ACTIVITY ── -->
 
-  <!-- Filters -->
-  <div class="dash-filter-row" style="margin-bottom:16px">
-    <label style="font-size:11px;font-weight:700;color:var(--text3)">Filter:</label>
-    <span style="display:none"><select id="dash-filter-owner" onchange="renderDashboard()"><option value="">All users</option></select></span>
-    <select id="dash-filter-status" onchange="renderDashboard()">
-      <option value="">All statuses</option>
-      <option value="open">Open</option>
-      <option value="follow">Follow Up</option>
-      <option value="win">Won</option>
-      <option value="loss">Lost</option>
-    </select>
-    <input type="text" id="dash-filter-search" placeholder="Search project, contractor, wholesaler…" oninput="renderDashboard()" style="width:240px">
-    <select id="dash-sort" onchange="renderDashboard()">
-      <option value="date-desc">Newest first</option>
-      <option value="date-asc">Oldest first</option>
-      <option value="value-desc">Highest offer value</option>
-      <option value="disc-desc">Highest discount</option>
-    </select>
-  </div>
+  
+</div>
+</div>
 
-  <!-- Quotes Table -->
-  <div class="dash-table-wrap">
-    <div id="dash-table-area">
-      <div class="dash-no-quotes" id="dash-empty">
-        <div class="dq-icon">📋</div>
-        <div class="dq-title">No saved quotes yet</div>
-        <div style="font-size:13px;color:var(--text4);margin-bottom:16px">Build and save quotes from the Project Pricing tab</div>
-        <button class="btn btn-green btn-sm" onclick="switchTab('project')">+ Start a Quote</button>
-      </div>
-      <div class="dash-table-scroll">
-        <table class="dash-table" id="dash-table" style="display:none">
-          <thead>
-            <tr>
-              <th style="width:110px">Quote #<span class="col-resize" data-col="0"></span></th>
-              <th style="width:160px">Project Name<span class="col-resize" data-col="1"></span></th>
-              <th style="width:130px">Contractor<span class="col-resize" data-col="2"></span></th>
-              <th style="width:120px">Wholesaler<span class="col-resize" data-col="3"></span></th>
-              <th style="width:90px">Valid To<span class="col-resize" data-col="4"></span></th>
-              <th style="width:50px;text-align:center">Lines<span class="col-resize" data-col="5"></span></th>
-              <th style="width:130px;text-align:right">Offer Total<span class="col-resize" data-col="6"></span></th>
-              <th style="width:120px;text-align:right">Discount<span class="col-resize" data-col="7"></span></th>
-              <th style="width:70px;text-align:right">Disc %<span class="col-resize" data-col="8"></span></th>
-              <th style="width:145px">Status<span class="col-resize" data-col="9"></span></th>
-              <th style="width:110px" class="actions-cell">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="dash-tbody"></tbody>
-        </table>
-      </div>
+<!-- ══ STIP TAB ══ -->
+<div class="tab-page" id="tab-stip">
+<div class="dash-wrap">
+  <div class="proj-header">
+    <div><div class="proj-title">💰 STIP Bonus Calculator <span>Quarterly lodgments, payout curve, year-end true-up</span></div></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;color:var(--text3)">Year</label>
+      <select class="proj-select" id="stip-year" style="width:auto" onchange="stipYearChanged()"></select>
+      <button class="btn btn-ghost btn-sm" onclick="var s=document.getElementById('stip-settings');s.style.display=s.style.display==='none'?'':'none'">⚙️ My Setup</button>
     </div>
   </div>
 
-</div>
-</div>
+  <!-- Settings -->
+  <div class="acard" id="stip-settings" style="display:none">
+    <div class="acard-title">⚙️ My Setup <span style="font-size:11px;font-weight:400;color:var(--text4)">private to you — saved per year</span></div>
+    <div class="proj-setup-grid">
+      <div class="proj-field"><label>Annual Salary ($)</label><input type="number" class="proj-input" id="st-salary" placeholder="e.g. 120000" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Bonus (% of salary)</label><input type="number" class="proj-input" id="st-bonuspct" placeholder="e.g. 35" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Super rate (%)</label><input type="number" class="proj-input" id="st-super" value="12" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Tax deduction (%)</label><input type="number" class="proj-input" id="st-tax" value="30" step="0.5" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Zero-payout floor (%)</label><input type="number" class="proj-input" id="st-floor" value="75" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>Max stretch (%)</label><input type="number" class="proj-input" id="st-cap" value="125" onchange="stipSaveConfig()"></div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--text3);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em">KPIs — names &amp; weight of the bonus</div>
+    <div class="proj-setup-grid">
+      <div class="proj-field"><label>KPI 1 name</label><input class="proj-input" id="st-k1name" placeholder="e.g. Sales" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>KPI 1 weight (%)</label><input type="number" class="proj-input" id="st-k1w" value="40" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>KPI 2 name</label><input class="proj-input" id="st-k2name" placeholder="e.g. Margin" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>KPI 2 weight (%)</label><input type="number" class="proj-input" id="st-k2w" value="40" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>KPI 3 name</label><input class="proj-input" id="st-k3name" placeholder="e.g. CAP calls" onchange="stipSaveConfig()"></div>
+      <div class="proj-field"><label>KPI 3 weight (%)</label><input type="number" class="proj-input" id="st-k3w" value="20" onchange="stipSaveConfig()"></div>
+    </div>
+    <div id="st-config-status" style="font-size:12px;color:var(--accent-dark);margin-top:8px;min-height:16px"></div>
+  </div>
+
+  <!-- Headline cards -->
+  <div class="dash-kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+    <div class="dash-kpi money"><div class="dash-kpi-val" id="st-hd-target">—</div><div class="dash-kpi-lbl">Annual bonus target</div></div>
+    <div class="dash-kpi win"><div class="dash-kpi-val" id="st-hd-paid">—</div><div class="dash-kpi-lbl">Paid so far (gross)</div></div>
+    <div class="dash-kpi total"><div class="dash-kpi-val" id="st-hd-annual">—</div><div class="dash-kpi-lbl">Year-end entitlement</div></div>
+    <div class="dash-kpi follow"><div class="dash-kpi-val" id="st-hd-trueup">—</div><div class="dash-kpi-lbl">Year-end true-up</div></div>
+  </div>
+
+  <!-- Quarter entry cards -->
+  <div id="stip-quarters" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:20px"></div>
+
+  <!-- Year-end reconciliation -->
+  <div class="acard" id="stip-annual-card">
+    <div class="acard-title">🧮 Year-End True-Up</div>
+    <div id="stip-annual-body" style="font-size:13px;color:var(--text2)"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="dash-charts-row" style="grid-template-columns:1fr 1fr">
+    <div class="dash-chart-card">
+      <div class="dash-chart-title">Quarterly payout (gross $)</div>
+      <div id="stip-chart-quarters" style="display:flex;align-items:flex-end;gap:14px;height:130px;padding:6px 4px 22px"></div>
+    </div>
+    <div class="dash-chart-card">
+      <div class="dash-chart-title">KPI achievement — full year</div>
+      <div class="val-bar-row" id="stip-chart-kpis"></div>
+    </div>
+  </div>
 
 </div>
 </div>
@@ -4135,12 +4200,12 @@ async function saveQuote(){
 
   // If editing an existing quote → overwrite it (keep id, status, original savedAt)
   var existingId = currentQuoteId;
-  var existingStatus = 'open';
+  var existingStatus = 'draft';
   var existingSavedAt = null;
   if(existingId){
     try{
       var existing = await dbGet('settings', existingId);
-      if(existing){ existingStatus = existing.status||'open'; existingSavedAt = existing.savedAt; }
+      if(existing){ existingStatus = normStatus(existing.status); existingSavedAt = existing.savedAt; }
     }catch(e){}
   }
 
@@ -4207,6 +4272,8 @@ async function loadQuoteById(id){
     updateSaveBtn();
     document.getElementById('proj-export-btn').style.display='';
     switchTab('project');
+    document.getElementById('proj-list-view').style.display='none';
+    document.getElementById('proj-form-view').style.display='';
     toast('✓ Quote "'+q.quoteNum+'" loaded — editing in place');
   }catch(e){toast('Error loading: '+e.message);}
 }
@@ -4239,6 +4306,17 @@ async function updateQuoteStatus(id,status){
     renderDashboard();
   }catch(e){}
 }
+
+// ── Quote status model ────────────────────────────────
+var QUOTE_STATUSES=[
+  {v:'draft',     label:'📝 Draft',     color:'var(--text3)', bg:'var(--bg2)'},
+  {v:'sent',      label:'📤 Sent',      color:'#1d4ed8',      bg:'#dbeafe'},
+  {v:'won',       label:'✅ Won',       color:'#166534',      bg:'#dcfce7'},
+  {v:'lost',      label:'❌ Lost',      color:'#991b1b',      bg:'#fee2e2'},
+  {v:'cancelled', label:'🚫 Cancelled', color:'#6b7280',      bg:'#f3f4f6'}
+];
+// Legacy statuses from older saves map onto the new set
+function normStatus(s){ return {open:'draft',follow:'sent',win:'won',loss:'lost'}[s]||s||'draft'; }
 
 // ── Dashboard Render ──────────────────────────────────
 var allSavedQuotes=[];
@@ -4281,135 +4359,192 @@ async function loadAllQuotes(){
   renderDashboard();
 }
 
-function renderDashboard(){
-  var statusFilter = (document.getElementById('dash-filter-status')||{}).value||'';
-  var searchFilter = ((document.getElementById('dash-filter-search')||{}).value||'').toLowerCase();
-  var sortBy = (document.getElementById('dash-sort')||{}).value||'date-desc';
-
-  // ── Compute KPIs from ALL quotes ──────────────────────
-  var kpi = {total:0, win:0, loss:0, follow:0, open:0};
-  var vals = {all:0, win:0, loss:0, follow:0, open:0};
-
-  allSavedQuotes.forEach(function(q){
-    var st = q.status||'open';
-    kpi.total++;
-    kpi[st] = (kpi[st]||0) + 1;
-    var t = getTotals(q);
-    vals.all  += t.offer;
-    vals[st]  = (vals[st]||0) + t.offer;
+// ══════════════════════════════════════════════════════
+// QUOTES LIST (landing view of Project Pricing)
+// ══════════════════════════════════════════════════════
+var QL_COLS=[
+  {key:'quoteNum',  label:'Quote #',    on:true},
+  {key:'projectName',label:'Project',   on:true},
+  {key:'contractor',label:'Contractor', on:true},
+  {key:'wholesaler',label:'Wholesaler', on:false},
+  {key:'validTo',   label:'Valid To',   on:true},
+  {key:'lines',     label:'Lines',      on:true},
+  {key:'total',     label:'Offer Total',on:true},
+  {key:'discount',  label:'Discount',   on:false},
+  {key:'status',    label:'Status',     on:true},
+  {key:'saved',     label:'Saved',      on:false}
+];
+var qlColPrefs=null;
+async function loadQlPrefs(){ try{ var p=await dbGet('settings','quoteListCols'); if(p) qlColPrefs=p; }catch(e){} }
+function qlVisibleCols(){ return QL_COLS.filter(function(c){ return qlColPrefs ? qlColPrefs.indexOf(c.key)!==-1 : c.on; }); }
+function buildQlColsMenu(){
+  var dd=document.getElementById('ql-cols-dd'); if(!dd) return;
+  dd.innerHTML=QL_COLS.map(function(c){
+    var on=qlColPrefs ? qlColPrefs.indexOf(c.key)!==-1 : c.on;
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12px;cursor:pointer;color:var(--text2)"><input type="checkbox" data-k="'+c.key+'" '+(on?'checked':'')+' style="accent-color:var(--accent)">'+c.label+'</label>';
+  }).join('');
+  dd.querySelectorAll('input').forEach(function(cb){
+    cb.addEventListener('change',function(){
+      qlColPrefs=Array.prototype.slice.call(dd.querySelectorAll('input:checked')).map(function(x){return x.getAttribute('data-k');});
+      dbPut('settings','quoteListCols',qlColPrefs);
+      renderQuoteList();
+    });
   });
+}
 
-  // Update KPI cards
-  function setEl(id,v){var e=document.getElementById(id);if(e)e.textContent=v;}
-  var pipelineCount = (kpi.open||0) + (kpi.follow||0);
-  var pipelineVal   = (vals.open||0) + (vals.follow||0);
-  setEl('dk-total',        kpi.total);
-  setEl('dk-quoted-val',   '$'+fmtNum(vals.all));
-  setEl('dk-win',          kpi.win||0);
-  setEl('dk-won-val',      '$'+fmtNum(vals.win||0));
-  setEl('dk-loss',         kpi.loss||0);
-  setEl('dk-lost-val',     '$'+fmtNum(vals.loss||0));
-  setEl('dk-open',         pipelineCount);
-  setEl('dk-follow',       (kpi.follow||0) ? '🔔 '+kpi.follow+' follow up' : '');
-  setEl('dk-pipeline-val', '$'+fmtNum(pipelineVal));
+function quoteCell(q,key){
+  var t=getTotals(q), st=normStatus(q.status);
+  switch(key){
+    case 'quoteNum': return '<td style="font-weight:700;color:var(--blue);font-size:12px;cursor:pointer" class="ql-open">'+escH(q.quoteNum||'—')+(q._ownerName?'<div style="font-size:9px;color:var(--text4);font-weight:400">by '+escH(q._ownerName)+'</div>':'')+'</td>';
+    case 'projectName': return '<td><a class="quote-name-link ql-open" style="cursor:pointer">'+escH(q.projectName||'Untitled')+'</a></td>';
+    case 'contractor': return '<td style="color:var(--text3);font-size:12px">'+escH(q.contractor||'—')+'</td>';
+    case 'wholesaler': return '<td style="color:var(--text3);font-size:12px">'+escH(q.wholesaler||'—')+'</td>';
+    case 'validTo': return '<td style="font-size:11px;color:var(--text4)">'+escH(q.validTo||'—')+'</td>';
+    case 'lines': return '<td style="text-align:center;font-weight:700;color:var(--blue)">'+(q.lines?q.lines.filter(function(l){return l.partNum&&l.partNum.trim();}).length:0)+'</td>';
+    case 'total': return '<td style="text-align:right;font-weight:700;color:var(--accent-dark)">$'+fmtNum(t.offer)+'</td>';
+    case 'discount': return '<td style="text-align:right;color:#16a34a;font-weight:600">-$'+fmtNum(t.saving)+'</td>';
+    case 'saved': return '<td style="font-size:11px;color:var(--text4)">'+(q.savedAt?q.savedAt.slice(0,10):'—')+'</td>';
+    case 'status': return '<td><select class="status-sel ql-status-sel" style="width:130px">'+
+      QUOTE_STATUSES.map(function(s){return '<option value="'+s.v+'"'+(st===s.v?' selected':'')+'>'+s.label+'</option>';}).join('')+'</select></td>';
+  }
+  return '<td></td>';
+}
 
-  // ── Pie chart ──────────────────────────────────────────
-  renderPieChart(kpi);
+function renderQuoteList(){
+  var tbody=document.getElementById('ql-tbody'); if(!tbody) return;
+  buildQlColsMenu();
+  var search=((document.getElementById('ql-search')||{}).value||'').toLowerCase();
+  var statusF=(document.getElementById('ql-status')||{}).value||'';
+  var sortBy=(document.getElementById('ql-sort')||{}).value||'date-desc';
+  var ownerF=(document.getElementById('ql-owner')||{}).value||'';
 
-  // ── Value bars ─────────────────────────────────────────
-  renderValBars(vals);
+  // Owner filter for admins
+  var ow=document.getElementById('ql-owner-wrap');
+  if(ow&&isAdmin&&allSavedQuotes.some(function(q){return q._ownerName;})){
+    ow.style.display='';
+    var sel=document.getElementById('ql-owner'), cur=sel.value;
+    var owners={}; allSavedQuotes.forEach(function(q){ owners[q._ownerId||'me']=q._ownerName||'My quotes'; });
+    sel.innerHTML='<option value="">All users</option>'+Object.entries(owners).map(function(e){return '<option value="'+e[0]+'">'+escH(e[1])+'</option>';}).join('');
+    sel.value=cur;
+  }
 
-  // ── Filter + sort quotes ──────────────────────────────
-  var ownerFilter=(document.getElementById('dash-filter-owner')||{}).value||'';
-  var filtered = allSavedQuotes.filter(function(q){
-    if(ownerFilter && q._ownerId!==ownerFilter) return false;
-    if(statusFilter && (q.status||'open')!==statusFilter) return false;
-    if(searchFilter){
-      var hay = ((q.projectName||'')+' '+(q.contractor||'')+' '+(q.wholesaler||'')+' '+(q.quoteNum||'')).toLowerCase();
-      if(hay.indexOf(searchFilter)===-1) return false;
+  var list=allSavedQuotes.filter(function(q){
+    if(statusF&&normStatus(q.status)!==statusF) return false;
+    if(ownerF&&(q._ownerId||'me')!==ownerF) return false;
+    if(search){
+      var hay=((q.quoteNum||'')+' '+(q.projectName||'')+' '+(q.contractor||'')+' '+(q.wholesaler||'')).toLowerCase();
+      if(hay.indexOf(search)===-1) return false;
     }
     return true;
   });
-
-  filtered.sort(function(a,b){
-    if(sortBy==='date-asc')  return new Date(a.savedAt)-new Date(b.savedAt);
+  list.sort(function(a,b){
+    if(sortBy==='date-asc') return new Date(a.savedAt)-new Date(b.savedAt);
     if(sortBy==='value-desc') return getTotals(b).offer-getTotals(a).offer;
-    if(sortBy==='disc-desc')  return getTotals(b).saving-getTotals(a).saving;
     return new Date(b.savedAt)-new Date(a.savedAt);
   });
 
-  // ── Render table ──────────────────────────────────────
-  var empty = document.getElementById('dash-empty');
-  var table = document.getElementById('dash-table');
+  var table=document.getElementById('ql-table'), empty=document.getElementById('ql-empty');
+  if(!list.length){ table.style.display='none'; empty.style.display='block';
+    empty.querySelector('.dq-title').textContent=allSavedQuotes.length?'No quotes match your filters':'No quotes yet';
+    return; }
+  table.style.display='table'; empty.style.display='none';
 
-  if(!filtered.length){
-    empty.style.display='block'; table.style.display='none';
-    empty.querySelector('.dq-title').textContent = allSavedQuotes.length ? 'No quotes match your filters' : 'No saved quotes yet';
-    return;
+  var cols=qlVisibleCols();
+  document.getElementById('ql-thead').innerHTML='<tr>'+cols.map(function(c){
+    var align=(c.key==='total'||c.key==='discount')?'text-align:right;':(c.key==='lines'?'text-align:center;':'');
+    return '<th style="'+align+'">'+c.label+'</th>';
+  }).join('')+'<th style="width:190px">Actions</th></tr>';
+
+  document.getElementById('ql-tbody').innerHTML=list.map(function(q){
+    return '<tr data-qid="'+q.id+'" data-qname="'+escH(q.quoteNum||q.projectName||'Quote')+'">'+
+      cols.map(function(c){return quoteCell(q,c.key);}).join('')+
+      '<td class="actions-cell" style="white-space:nowrap">'+
+        '<button class="btn btn-ghost btn-sm ql-view" title="Open and edit" style="padding:4px 9px;font-size:11px">👁 View</button> '+
+        '<button class="btn btn-ghost btn-sm ql-dl" title="Download quotes-team template" style="padding:4px 9px;font-size:11px">⬇</button> '+
+        '<button class="btn btn-ghost btn-sm ql-send" title="Copy email table" style="padding:4px 9px;font-size:11px">✉️</button> '+
+        '<button class="dash-del-btn ql-del" title="Delete">🗑</button>'+
+      '</td></tr>';
+  }).join('');
+
+  var tb=document.getElementById('ql-tbody');
+  tb.onclick=function(e){
+    var tr=e.target.closest('tr[data-qid]'); if(!tr) return;
+    var qid=tr.getAttribute('data-qid'), qname=tr.getAttribute('data-qname');
+    var q=allSavedQuotes.find(function(x){return x.id===qid;}); if(!q) return;
+    if(e.target.closest('.ql-open')||e.target.closest('.ql-view')) { openQuoteForm(qid); }
+    else if(e.target.closest('.ql-dl'))  { quoteRowExport(q,'xlsxtemplate'); }
+    else if(e.target.closest('.ql-send')){ quoteRowExport(q,'email'); }
+    else if(e.target.closest('.ql-del')) { if(confirm('Delete "'+qname+'"? This cannot be undone.')) deleteQuote(qid).then(function(){renderQuoteList();}); }
+  };
+  tb.onchange=function(e){
+    if(!e.target.classList.contains('ql-status-sel')) return;
+    var tr=e.target.closest('tr[data-qid]'); if(!tr) return;
+    updateQuoteStatus(tr.getAttribute('data-qid'), e.target.value).then(function(){renderQuoteList();});
+  };
+}
+
+// Load a quote's fields into the form WITHOUT switching views (for row actions)
+function fillFormFromQuote(q){
+  currentQuoteId=q.id;
+  document.getElementById('pj-quotenum').value=q.quoteNum||'';
+  document.getElementById('pj-name').value=q.projectName||'';
+  document.getElementById('pj-wholesaler').value=q.wholesaler||'';
+  document.getElementById('pj-contractor').value=q.contractor||'';
+  document.getElementById('pj-date').value=q.validTo||'';
+  document.getElementById('pj-tier').value=q.tier||'under30k';
+  document.getElementById('pj-price-col').value=q.priceCol||'best';
+  document.getElementById('pj-disc').value=q.discPct||5;
+  var drEl=document.getElementById('pj-disc-reason'); if(drEl) drEl.value=q.discReason||'';
+  quoteLines=(q.lines||[]).map(function(l){return Object.assign({},l);});
+  renderProjTable();
+  updateSaveBtn();
+}
+function quoteRowExport(q,fmt){
+  fillFormFromQuote(q);
+  projExport(fmt);
+}
+
+function openQuoteForm(id){
+  if(id){
+    var q=allSavedQuotes.find(function(x){return x.id===id;});
+    if(q) fillFormFromQuote(q);
+  } else {
+    clearQuote();
   }
-  empty.style.display='none';
-  var scrollWrap = document.querySelector('.dash-table-scroll');
-  table.style.display='table';
-  if(scrollWrap) scrollWrap.style.display='block';
+  document.getElementById('proj-list-view').style.display='none';
+  document.getElementById('proj-form-view').style.display='';
+  updateGMIStatusBadges();
+}
+function backToQuoteList(){
+  document.getElementById('proj-form-view').style.display='none';
+  document.getElementById('proj-list-view').style.display='';
+  loadAllQuotes().then ? loadAllQuotes().then(function(){renderQuoteList();}) : renderQuoteList();
+}
 
-  var html='';
-  filtered.forEach(function(q){
-    var t = getTotals(q);
-    var discPct = t.list>0 ? (t.saving/t.list*100) : 0;
-    var st = q.status||'open';
-    var stColors = {win:'#16a34a',loss:'var(--red)',follow:'#d97706',open:'var(--text3)'};
-    var stLabels = {win:'✅ Won',loss:'❌ Lost',follow:'🔔 Follow Up',open:'⏳ Open'};
-    html += '<tr data-qid="'+q.id+'" data-qname="'+escH(q.quoteNum||q.projectName||'Quote')+'">'+
-      '<td style="font-weight:700;color:var(--blue);font-size:12px">'+escH(q.quoteNum||'—')+(q._ownerName?'<div style="font-size:9px;color:var(--text4);font-weight:400">by '+escH(q._ownerName)+'</div>':'')+'</td>'+
-      '<td><a class="quote-name-link dash-open-btn" style="font-weight:600;cursor:pointer">'+escH(q.projectName||'Untitled')+'</a></td>'+
-      '<td style="color:var(--text3);font-size:12px">'+escH(q.contractor||'—')+'</td>'+
-      '<td style="color:var(--text3);font-size:12px">'+escH(q.wholesaler||'—')+'</td>'+
-      '<td style="font-size:11px;color:var(--text4)">'+escH(q.validTo||'—')+'</td>'+
-      '<td style="text-align:center;font-weight:700;color:var(--blue)">'+(q.lines?q.lines.filter(function(l){return l.partNum&&l.partNum.trim();}).length:0)+'</td>'+
-      '<td style="text-align:right;font-weight:700;color:var(--accent-dark)">$'+fmtNum(t.offer)+'</td>'+
-      '<td style="text-align:right;color:#16a34a;font-weight:600">-$'+fmtNum(t.saving)+'</td>'+
-      '<td style="text-align:right;color:#16a34a;font-weight:700">-'+discPct.toFixed(1)+'%</td>'+
-      '<td>'+
-        '<select class="status-sel dash-status-sel '+st+'" style="width:120px">'+
-          '<option value="open"'+(st==='open'?' selected':'')+'>⏳ Open</option>'+
-          '<option value="follow"'+(st==='follow'?' selected':'')+'>🔔 Follow Up</option>'+
-          '<option value="win"'+(st==='win'?' selected':'')+'>✅ Won</option>'+
-          '<option value="loss"'+(st==='loss'?' selected':'')+'>❌ Lost</option>'+
-        '</select>'+
-      '</td>'+
-      '<td class="actions-cell">'+
-        '<button class="btn btn-ghost btn-sm dash-open-btn" style="padding:3px 8px;font-size:10px">Open</button>'+
-        '<button class="dash-del-btn">Del</button>'+
-      '</td>'+
-    '</tr>';
+function renderDashboard(){
+  // ── KPIs across ALL quotes (new status model) ─────────
+  var kpi={total:0,won:0,lost:0,sent:0,draft:0,cancelled:0};
+  var vals={all:0,won:0,lost:0,sent:0,draft:0,cancelled:0};
+  allSavedQuotes.forEach(function(q){
+    var st=normStatus(q.status);
+    kpi.total++; kpi[st]=(kpi[st]||0)+1;
+    var t=getTotals(q);
+    vals.all+=t.offer; vals[st]=(vals[st]||0)+t.offer;
   });
-  document.getElementById('dash-tbody').innerHTML = html;
-  // Wire up events via delegation (avoids inline JS quote escaping issues)
-  var tbody = document.getElementById('dash-tbody');
-  if (tbody) {
-    tbody.onclick = function(e) {
-      var tr = e.target.closest('tr[data-qid]');
-      if (!tr) return;
-      var qid = tr.getAttribute('data-qid');
-      var qname = tr.getAttribute('data-qname');
-      if (e.target.classList.contains('dash-open-btn') || e.target.closest('.dash-open-btn')) {
-        loadQuoteById(qid);
-      } else if (e.target.classList.contains('dash-del-btn')) {
-        confirmDeleteQuote(qid, qname);
-      }
-    };
-    tbody.onchange = function(e) {
-      if (e.target.classList.contains('dash-status-sel')) {
-        var tr = e.target.closest('tr[data-qid]');
-        if (!tr) return;
-        var qid = tr.getAttribute('data-qid');
-        var newStatus = e.target.value;
-        e.target.className = 'status-sel dash-status-sel ' + newStatus;
-        updateQuoteStatus(qid, newStatus);
-      }
-    };
-  }
-  // Also render CAP section
+  function setEl(id,v){var e=document.getElementById(id);if(e)e.textContent=v;}
+  var pipelineCount=(kpi.draft||0)+(kpi.sent||0);
+  var pipelineVal=(vals.draft||0)+(vals.sent||0);
+  setEl('dk-total',        kpi.total);
+  setEl('dk-quoted-val',   '$'+fmtNum(vals.all));
+  setEl('dk-win',          kpi.won||0);
+  setEl('dk-won-val',      '$'+fmtNum(vals.won||0));
+  setEl('dk-loss',         kpi.lost||0);
+  setEl('dk-lost-val',     '$'+fmtNum(vals.lost||0));
+  setEl('dk-open',         pipelineCount);
+  setEl('dk-follow',       (kpi.sent||0)?'📤 '+kpi.sent+' sent':'');
+  setEl('dk-pipeline-val', '$'+fmtNum(pipelineVal));
+  renderPieChart(kpi);
+  renderValBars(vals);
   renderCAPDashboard();
 }
 
@@ -4419,10 +4554,11 @@ function renderPieChart(kpi){
   if(!svg || !legend) return;
 
   var slices = [
-    {label:'Won',       val:kpi.win||0,    color:'#16a34a'},
-    {label:'Open',      val:kpi.open||0,   color:'#3b82f6'},
-    {label:'Follow Up', val:kpi.follow||0, color:'#d97706'},
-    {label:'Lost',      val:kpi.loss||0,   color:'#ef4444'},
+    {label:'Won',       val:kpi.won||0,       color:'#16a34a'},
+    {label:'Draft',     val:kpi.draft||0,     color:'#9ca3af'},
+    {label:'Sent',      val:kpi.sent||0,      color:'#3b82f6'},
+    {label:'Lost',      val:kpi.lost||0,      color:'#ef4444'},
+    {label:'Cancelled', val:kpi.cancelled||0, color:'#d1d5db'},
   ].filter(function(s){return s.val>0;});
 
   var total = slices.reduce(function(s,x){return s+x.val;},0);
@@ -4465,11 +4601,11 @@ function renderValBars(vals){
   var el = document.getElementById('dash-val-bars');
   if(!el) return;
   var rows = [
-    {label:'All',       val:vals.all,        color:'var(--accent)'},
-    {label:'Won',       val:vals.win||0,     color:'#16a34a'},
-    {label:'Open',      val:vals.open||0,    color:'#3b82f6'},
-    {label:'Follow Up', val:vals.follow||0,  color:'#d97706'},
-    {label:'Lost',      val:vals.loss||0,    color:'#ef4444'},
+    {label:'All',       val:vals.all,          color:'var(--accent)'},
+    {label:'Won',       val:vals.won||0,       color:'#16a34a'},
+    {label:'Draft',     val:vals.draft||0,     color:'#9ca3af'},
+    {label:'Sent',      val:vals.sent||0,      color:'#3b82f6'},
+    {label:'Lost',      val:vals.lost||0,      color:'#ef4444'},
   ];
   var maxVal = rows.reduce(function(m,r){return Math.max(m,r.val);},0);
   if(!maxVal){el.innerHTML='<div style="color:var(--text4);font-size:12px;padding:16px">No data yet</div>';return;}
@@ -4769,6 +4905,7 @@ var TAB_DEFS=[
   {id:'search',   label:'🔍 Search',         adminOnly:false, alwaysOn:true},
   {id:'project',  label:'📋 Project Pricing', adminOnly:false, alwaysOn:false},
   {id:'dashboard',label:'📊 Dashboard',       adminOnly:false, alwaysOn:false},
+  {id:'stip',     label:'💰 STIP',            adminOnly:false, alwaysOn:false},
   {id:'cap',      label:'👥 CAP',             adminOnly:false, alwaysOn:false},
   {id:'admin',    label:'⚙️ Admin',            adminOnly:true,  alwaysOn:false},
 ];
@@ -6575,6 +6712,213 @@ async function capMigrateIds(){
   }
 }
 
+</script>
+<script>
+// ══════════════════════════════════════════════════════
+// STIP BONUS CALCULATOR
+// ══════════════════════════════════════════════════════
+// Payout curve per KPI: achievement <= floor% → 0; at 100% → 100%; at
+// cap% → 200% (linear between; capped at 200%). Quarterly payments cap each
+// KPI at 100% — over-achievement is settled in the year-end true-up, which
+// recalculates on FULL-YEAR numbers and pays (or claws back) the difference.
+var stipCfg=null, stipEntries=null, stipYear=new Date().getFullYear();
+
+function stipDefaults(){
+  return {salary:0,bonusPct:35,superPct:12,taxPct:30,floor:75,cap:125,
+    k1name:'KPI 1',k1w:40,k2name:'KPI 2',k2w:40,k3name:'KPI 3',k3w:20};
+}
+function stipCurve(achPct,cfg,capAt100){
+  if(achPct==null||isNaN(achPct)) return null;
+  var f=cfg.floor,c=cfg.cap;
+  var p;
+  if(achPct<=f) p=0;
+  else if(achPct>=c) p=200;
+  else if(achPct<=100) p=(achPct-f)/(100-f)*100;
+  else p=100+(achPct-100)/(c-100)*100;
+  if(capAt100&&p>100) p=100;
+  return p;
+}
+
+async function stipInit(){
+  var ysel=document.getElementById('stip-year');
+  if(ysel&&!ysel.options.length){
+    var y=new Date().getFullYear();
+    for(var i=y+1;i>=y-3;i--){var o=document.createElement('option');o.value=i;o.textContent=i;ysel.appendChild(o);}
+    ysel.value=y;
+  }
+  stipYear=parseInt(ysel.value)||new Date().getFullYear();
+  try{ stipCfg=(await dbGet('settings','stip_config_'+stipYear))||null; }catch(e){}
+  if(!stipCfg){
+    // fall back to last year's setup so you only type salary once
+    try{ stipCfg=(await dbGet('settings','stip_config_'+(stipYear-1)))||null; }catch(e){}
+    if(stipCfg) dbPut('settings','stip_config_'+stipYear,stipCfg);
+  }
+  if(!stipCfg) stipCfg=stipDefaults();
+  try{ stipEntries=(await dbGet('settings','stip_entries_'+stipYear))||{}; }catch(e){ stipEntries={}; }
+  stipLoadConfigUI();
+  stipRender();
+  if(!stipCfg.salary){ document.getElementById('stip-settings').style.display=''; }
+}
+function stipYearChanged(){ stipInit(); }
+
+function stipLoadConfigUI(){
+  var m={'st-salary':'salary','st-bonuspct':'bonusPct','st-super':'superPct','st-tax':'taxPct','st-floor':'floor','st-cap':'cap','st-k1name':'k1name','st-k1w':'k1w','st-k2name':'k2name','st-k2w':'k2w','st-k3name':'k3name','st-k3w':'k3w'};
+  Object.keys(m).forEach(function(id){ var el=document.getElementById(id); if(el) el.value=stipCfg[m[id]]!=null?stipCfg[m[id]]:''; });
+}
+function stipSaveConfig(){
+  var num=function(id,d){ var v=parseFloat((document.getElementById(id)||{}).value); return isNaN(v)?d:v; };
+  var txt=function(id,d){ return (document.getElementById(id)||{}).value||d; };
+  stipCfg={salary:num('st-salary',0),bonusPct:num('st-bonuspct',35),superPct:num('st-super',12),taxPct:num('st-tax',30),
+    floor:num('st-floor',75),cap:num('st-cap',125),
+    k1name:txt('st-k1name','KPI 1'),k1w:num('st-k1w',40),
+    k2name:txt('st-k2name','KPI 2'),k2w:num('st-k2w',40),
+    k3name:txt('st-k3name','KPI 3'),k3w:num('st-k3w',20)};
+  var wSum=stipCfg.k1w+stipCfg.k2w+stipCfg.k3w;
+  var stEl=document.getElementById('st-config-status');
+  if(stEl) stEl.textContent = wSum===100 ? '✓ Saved' : '⚠ KPI weights add up to '+wSum+'% (should be 100%)';
+  if(stEl) stEl.style.color = wSum===100 ? 'var(--accent-dark)' : 'var(--red)';
+  dbPut('settings','stip_config_'+stipYear,stipCfg);
+  audit('stip_config_saved',{year:stipYear});
+  stipRender();
+}
+function stipSaveEntry(q,field,val){
+  if(!stipEntries[q]) stipEntries[q]={};
+  var v=parseFloat(val);
+  stipEntries[q][field]=isNaN(v)?null:v;
+  dbPut('settings','stip_entries_'+stipYear,stipEntries);
+  stipRender();
+}
+
+// Per-quarter computation (quarterly payout caps each KPI at 100%)
+function stipQuarterCalc(q){
+  var e=stipEntries[q]||{};
+  var pot=(stipCfg.salary*stipCfg.bonusPct/100)/4;
+  var kpis=[1,2,3].map(function(k){
+    var t=e['k'+k+'t'],a=e['k'+k+'a'];
+    var ach=(t&&t>0&&a!=null)?a/t*100:null;
+    var pay=stipCurve(ach,stipCfg,true);
+    var w=stipCfg['k'+k+'w'];
+    return {k:k,name:stipCfg['k'+k+'name'],t:t,a:a,ach:ach,pay:pay,w:w,dollars:pay!=null?pot*(w/100)*(pay/100):null};
+  });
+  var entered=kpis.some(function(x){return x.ach!=null;});
+  var gross=entered?kpis.reduce(function(s,x){return s+(x.dollars||0);},0):null;
+  return {kpis:kpis,pot:pot,gross:gross,entered:entered};
+}
+
+// Year-end: full-year achievement per KPI, uncapped curve, minus quarterly paid
+function stipAnnualCalc(){
+  var pot=stipCfg.salary*stipCfg.bonusPct/100;
+  var kpis=[1,2,3].map(function(k){
+    var T=0,A=0,any=false;
+    ['Q1','Q2','Q3','Q4'].forEach(function(q){
+      var e=stipEntries[q]||{};
+      if(e['k'+k+'t']){T+=e['k'+k+'t'];any=true;}
+      if(e['k'+k+'a']!=null){A+=e['k'+k+'a'];}
+    });
+    var ach=(any&&T>0)?A/T*100:null;
+    var pay=stipCurve(ach,stipCfg,false); // uncapped up to 200%
+    var w=stipCfg['k'+k+'w'];
+    return {k:k,name:stipCfg['k'+k+'name'],T:T,A:A,ach:ach,pay:pay,w:w,dollars:pay!=null?pot*(w/100)*(pay/100):null};
+  });
+  var any=kpis.some(function(x){return x.ach!=null;});
+  var annual=any?kpis.reduce(function(s,x){return s+(x.dollars||0);},0):null;
+  var paid=0;
+  ['Q1','Q2','Q3','Q4'].forEach(function(q){ var c=stipQuarterCalc(q); paid+=c.gross||0; });
+  return {kpis:kpis,pot:pot,annual:annual,paid:paid,trueup:annual!=null?annual-paid:null};
+}
+
+function stipMoney(v){ return v==null?'—':'$'+fmtNum(v); }
+
+function stipRender(){
+  if(!stipCfg) return;
+  var qWrap=document.getElementById('stip-quarters'); if(!qWrap) return;
+  var achColor=function(a){ return a==null?'var(--text4)':a>=100?'#16a34a':a>=stipCfg.floor?'#d97706':'var(--red)'; };
+
+  qWrap.innerHTML=['Q1','Q2','Q3','Q4'].map(function(q){
+    var c=stipQuarterCalc(q);
+    var e=stipEntries[q]||{};
+    var rows=c.kpis.map(function(x){
+      return '<div style="display:grid;grid-template-columns:1fr 76px 76px 62px 62px;gap:6px;align-items:center;margin-bottom:6px">'+
+        '<div style="font-size:11px;font-weight:700;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escH(x.name)+' — '+x.w+'% of bonus">'+escH(x.name)+' <span style="color:var(--text4);font-weight:400">'+x.w+'%</span></div>'+
+        '<input type="number" class="proj-input" style="padding:5px 7px;font-size:12px" placeholder="Target" value="'+(e['k'+x.k+'t']!=null?e['k'+x.k+'t']:'')+'" onchange="stipSaveEntry(\''+q+'\',\'k'+x.k+'t\',this.value)">'+
+        '<input type="number" class="proj-input" style="padding:5px 7px;font-size:12px" placeholder="Actual" value="'+(e['k'+x.k+'a']!=null?e['k'+x.k+'a']:'')+'" onchange="stipSaveEntry(\''+q+'\',\'k'+x.k+'a\',this.value)">'+
+        '<div style="font-size:12px;font-weight:800;text-align:right;color:'+achColor(x.ach)+'">'+(x.ach!=null?x.ach.toFixed(0)+'%':'—')+'</div>'+
+        '<div style="font-size:11px;text-align:right;color:var(--text3)" title="payout of this KPI (quarterly, capped at 100%)">'+(x.pay!=null?x.pay.toFixed(0)+'%':'—')+'</div>'+
+      '</div>';
+    }).join('');
+    var g=c.gross, sup=g!=null?g*stipCfg.superPct/100:null, net=g!=null?g*(1-stipCfg.taxPct/100):null;
+    return '<div class="acard" style="margin-bottom:0">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
+        '<div style="font-size:15px;font-weight:800">'+q+' <span style="font-size:11px;font-weight:400;color:var(--text4)">'+stipYear+'</span></div>'+
+        '<div style="font-size:10px;color:var(--text4)">pot $'+fmtNum(c.pot)+'</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 76px 76px 62px 62px;gap:6px;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--text4);font-weight:700;margin-bottom:4px"><div>KPI</div><div>Target</div><div>Actual</div><div style="text-align:right">Achv</div><div style="text-align:right">Payout</div></div>'+
+      rows+
+      '<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">'+
+        '<div><div style="font-size:15px;font-weight:800;color:var(--accent-dark)">'+stipMoney(g)+'</div><div style="font-size:9px;color:var(--text4);text-transform:uppercase">Gross</div></div>'+
+        '<div><div style="font-size:15px;font-weight:800;color:var(--blue)">'+(g!=null?stipMoney(g+sup):'—')+'</div><div style="font-size:9px;color:var(--text4);text-transform:uppercase">+ Super '+stipCfg.superPct+'%</div></div>'+
+        '<div><div style="font-size:15px;font-weight:800;color:var(--text2)">'+stipMoney(net)+'</div><div style="font-size:9px;color:var(--text4);text-transform:uppercase">Net (−'+stipCfg.taxPct+'% tax)</div></div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  // headline + annual card
+  var an=stipAnnualCalc();
+  var setEl=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
+  setEl('st-hd-target', stipMoney(an.pot));
+  setEl('st-hd-paid',   stipMoney(an.paid||0));
+  setEl('st-hd-annual', stipMoney(an.annual));
+  var tu=document.getElementById('st-hd-trueup');
+  if(tu){ tu.textContent=an.trueup==null?'—':(an.trueup>=0?'+':'−')+'$'+fmtNum(Math.abs(an.trueup)); tu.style.color=an.trueup==null?'':(an.trueup>=0?'#16a34a':'var(--red)'); }
+
+  var ab=document.getElementById('stip-annual-body');
+  if(ab){
+    if(an.annual==null){ ab.innerHTML='<span style="color:var(--text4)">Enter at least one quarter above to see the year-end picture.</span>'; }
+    else{
+      var sup=an.annual*stipCfg.superPct/100, net=an.annual*(1-stipCfg.taxPct/100);
+      ab.innerHTML=
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">'+
+        an.kpis.map(function(x){return '<div class="ameta"><div class="ameta-lbl">'+escH(x.name)+' (full year)</div><div class="ameta-val" style="color:'+achColor(x.ach)+'">'+(x.ach!=null?x.ach.toFixed(1)+'% → pays '+x.pay.toFixed(0)+'%':'—')+'</div></div>';}).join('')+
+        '</div>'+
+        '<table class="kbd-table" style="max-width:520px">'+
+        '<tr><td>Annual entitlement (full-year numbers, up to 200%)</td><td><strong>'+stipMoney(an.annual)+'</strong></td></tr>'+
+        '<tr><td>Already paid across quarters</td><td>'+stipMoney(an.paid)+'</td></tr>'+
+        '<tr><td><strong>Year-end true-up '+(an.trueup>=0?'(they pay you)':'(you owe back)')+'</strong></td><td style="color:'+(an.trueup>=0?'#16a34a':'var(--red)')+'"><strong>'+(an.trueup>=0?'+':'−')+'$'+fmtNum(Math.abs(an.trueup))+'</strong></td></tr>'+
+        '<tr><td>Annual total incl super ('+stipCfg.superPct+'%)</td><td>'+stipMoney(an.annual+sup)+'</td></tr>'+
+        '<tr><td>Annual net after tax (−'+stipCfg.taxPct+'%)</td><td>'+stipMoney(net)+'</td></tr>'+
+        '</table>';
+    }
+  }
+
+  // charts
+  var qc=document.getElementById('stip-chart-quarters');
+  if(qc){
+    var vals=['Q1','Q2','Q3','Q4'].map(function(q){return stipQuarterCalc(q).gross||0;});
+    var mx=Math.max.apply(null,vals.concat([1]));
+    qc.innerHTML=['Q1','Q2','Q3','Q4'].map(function(q,i){
+      var h=Math.round(vals[i]/mx*95);
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">'+
+        '<div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:3px">'+(vals[i]?'$'+fmtNum(vals[i]):'')+'</div>'+
+        '<div style="width:70%;height:'+Math.max(h,2)+'px;background:linear-gradient(180deg,var(--accent),var(--accent-dark));border-radius:5px 5px 0 0"></div>'+
+        '<div style="font-size:10px;color:var(--text4);margin-top:4px;font-weight:700">'+q+'</div>'+
+      '</div>';
+    }).join('');
+  }
+  var kc=document.getElementById('stip-chart-kpis');
+  if(kc){
+    kc.innerHTML=an.kpis.map(function(x){
+      var pct=x.ach!=null?Math.min(150,x.ach):0;
+      return '<div class="val-bar-item">'+
+        '<span class="val-bar-label" title="'+escH(x.name)+'">'+escH(x.name.substring(0,10))+'</span>'+
+        '<div class="val-bar-track" style="position:relative">'+
+          '<div class="val-bar-fill" style="width:'+(pct/150*100).toFixed(1)+'%;background:'+achColor(x.ach)+'"></div>'+
+          '<div style="position:absolute;left:'+(100/150*100).toFixed(1)+'%;top:-2px;bottom:-2px;width:2px;background:var(--text4);opacity:.5" title="100% target"></div>'+
+        '</div>'+
+        '<span class="val-bar-amt">'+(x.ach!=null?x.ach.toFixed(1)+'%':'—')+'</span>'+
+      '</div>';
+    }).join('');
+  }
+}
 </script>
 <script>
 // Register the service worker for offline support (only when served over http/https)
