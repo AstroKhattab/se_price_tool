@@ -5143,22 +5143,29 @@ function applyColMappingToUI() {
 }
 
 function readColMappingFromUI() {
-  function getInt(id) {
+  // Read a dropdown's selected index, but PRESERVE the existing saved value when
+  // the dropdown hasn't been populated with real columns yet (options.length<=1).
+  // Otherwise a boot-timing race — e.g. GMI header options not loaded — would
+  // read the empty select as blank and wipe a good saved mapping to -1.
+  function getInt(id, current) {
     var el = document.getElementById(id);
-    if (!el || el.value === '' || el.value === undefined) return -1;
-    return parseInt(el.value);
+    if (!el) return current;
+    if (el.options && el.options.length <= 1) return current; // not populated → keep saved
+    if (el.value === '' || el.value === undefined) return -1;  // explicitly "— not selected —"
+    var n = parseInt(el.value);
+    return isNaN(n) ? current : n;
   }
-  colMapping.listPriceCol = getInt('cm-list-price-col');
-  colMapping.partCol       = getInt('cm-part-col');
-  colMapping.descCol       = getInt('cm-desc-col');
+  colMapping.listPriceCol = getInt('cm-list-price-col', colMapping.listPriceCol);
+  colMapping.partCol       = getInt('cm-part-col',       colMapping.partCol);
+  colMapping.descCol       = getInt('cm-desc-col',       colMapping.descCol);
   var lg=document.getElementById('cm-list-gst'); if(lg) colMapping.listGst=lg.value||'incl';
   var gg=document.getElementById('cm-gmi-gst'); if(gg) colMapping.gmiGst=gg.value||'incl';
-  colMapping.gmiUnderPart  = getInt('cm-gmi-under-part');
-  colMapping.gmiUnderBest  = getInt('cm-gmi-under-best');
-  colMapping.gmiUnderRha   = getInt('cm-gmi-under-rha');
-  colMapping.gmiOverPart   = getInt('cm-gmi-over-part');
-  colMapping.gmiOverBest   = getInt('cm-gmi-over-best');
-  colMapping.gmiOverRha    = getInt('cm-gmi-over-rha');
+  colMapping.gmiUnderPart  = getInt('cm-gmi-under-part', colMapping.gmiUnderPart);
+  colMapping.gmiUnderBest  = getInt('cm-gmi-under-best', colMapping.gmiUnderBest);
+  colMapping.gmiUnderRha   = getInt('cm-gmi-under-rha',  colMapping.gmiUnderRha);
+  colMapping.gmiOverPart   = getInt('cm-gmi-over-part',  colMapping.gmiOverPart);
+  colMapping.gmiOverBest   = getInt('cm-gmi-over-best',  colMapping.gmiOverBest);
+  colMapping.gmiOverRha    = getInt('cm-gmi-over-rha',   colMapping.gmiOverRha);
 }
 
 // Persist the in-memory colMapping object as-is (no UI read). Use this from
