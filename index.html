@@ -5161,10 +5161,18 @@ function readColMappingFromUI() {
   colMapping.gmiOverRha    = getInt('cm-gmi-over-rha');
 }
 
-function saveColMapping() {
-  readColMappingFromUI();
+// Persist the in-memory colMapping object as-is (no UI read). Use this from
+// programmatic callers (auto-detect) where the dropdowns may not yet reflect
+// the intended mapping — reading them back would clobber it with blanks.
+function persistColMapping() {
   dbPut('settings', 'colMapping', colMapping).catch(function(){});
   updateColMappingStatus();
+}
+
+// UI-driven save: pull the user's dropdown selections into colMapping, then persist.
+function saveColMapping() {
+  readColMappingFromUI();
+  persistColMapping();
 }
 
 async function loadColMapping() {
@@ -5273,8 +5281,8 @@ function autoDetectColMapping() {
     for (var i4=0; i4<hLow.length; i4++){ if (hLow[i4].includes('description')||hLow[i4].includes('desc')){ colMapping.descCol=i4; break; } }
   }
 
-  saveColMapping();
-  buildColMappingUI();
+  buildColMappingUI();      // push detected values to the dropdowns first
+  persistColMapping();      // then save the object (NOT the UI) so nothing gets clobbered
   console.log('[ColMapping] Auto-detected: part='+colMapping.partCol+' price='+colMapping.listPriceCol+' ('+headers[colMapping.listPriceCol]+') desc='+colMapping.descCol);
 }
 // Auto-detect GMI columns when GMI file loads
@@ -5304,18 +5312,46 @@ function autoDetectGMIMapping(tier, rawHeaders) {
     colMapping.gmiOverBest = bestCol;
     colMapping.gmiOverRha  = rhaCol;
   }
-  saveColMapping();
   buildColMappingUI();
+  persistColMapping();
 }
 
 // ═══════════════════════════════════════════════════════
 // REWRITTEN LOOKUP FUNCTIONS — use colMapping exclusively
 // ═══════════════════════════════════════════════════════
 
+// Prioritised list of price-column indices: the user-mapped column first,
+// then fallback price columns detected from the headers that share the SAME
+// GST basis (so calcOneLine's incl/excl normalisation stays correct). Some
+// product ranges (e.g. EV chargers) leave the primary mapped column blank but
+// still carry a Wholesale / Price-Break price — without this they'd wrongly
+// read as "NOT FOUND" even though the product exists in the price file.
+function _priceColCandidates(primaryCol) {
+  var cands = [];
+  if (primaryCol >= 0) cands.push(primaryCol);
+  var gstBasis = colMapping.listGst === 'excl' ? 'excl' : 'incl';
+  var hLow = (headers || []).map(function(h){ return (h||'').toString().toLowerCase(); });
+  function add(pred) {
+    for (var i = 0; i < hLow.length; i++) {
+      if (cands.indexOf(i) !== -1) continue;
+      var h = hLow[i];
+      // only same-GST-basis columns, and never RRP/ARRP or discount/qty columns
+      if (gstBasis === 'incl' && h.indexOf('incl') === -1) continue;
+      if (gstBasis === 'excl' && h.indexOf('excl') === -1) continue;
+      if (h.indexOf('rrp') !== -1 || h.indexOf('discount') !== -1 || h.indexOf('qty') !== -1) continue;
+      if (pred(h)) cands.push(i);
+    }
+  }
+  add(function(h){ return h.indexOf('price break 1') !== -1 && h.indexOf('cost') !== -1; });
+  add(function(h){ return h.indexOf('wholesale') !== -1 && h.indexOf('price') !== -1; });
+  add(function(h){ return h.indexOf('price') !== -1 || h.indexOf('cost') !== -1; });
+  return cands;
+}
+
 function lookupPartExact(partNum) {
   if (!allRows || !allRows.length) return null;
   if (!partNum || !partNum.trim()) return null;
-  
+
   var pi = colMapping.partCol >= 0 ? colMapping.partCol : colMap['part_number'];
   var pb1i = colMapping.listPriceCol >= 0 ? colMapping.listPriceCol : -1;
   var di = colMapping.descCol >= 0 ? colMapping.descCol : colMap['description'];
@@ -5330,26 +5366,36 @@ function lookupPartExact(partNum) {
     return null;
   }
 
+  var priceCols = _priceColCandidates(pb1i);
+  // First valid positive price across the mapped column then same-GST fallbacks.
+  function priceFromRow(row) {
+    for (var c = 0; c < priceCols.length; c++) {
+      var p = parseFloat((row[priceCols[c]] || '').toString().replace(/[^0-9.]/g, ''));
+      if (!isNaN(p) && p > 0) return p;
+    }
+    return null;
+  }
+
   var key = partNum.trim().toUpperCase();
   var keyStripped = key.replace(/[-\/\s]/g, '');
 
   for (var i = 0; i < allRows.length; i++) {
     var v = (allRows[i][pi] || '').toString().trim().toUpperCase();
     if (v === key) {
-      var price = parseFloat((allRows[i][pb1i] || '').toString().replace(/[^0-9.]/g, ''));
+      var price = priceFromRow(allRows[i]);
       var desc = (di >= 0 && di !== undefined) ? (allRows[i][di] || '').toString().trim() : '';
       var uom = ui >= 0 ? (allRows[i][ui] || '').toString().trim() : '';
-      if (!isNaN(price) && price > 0) return { listPrice: price, desc: desc, uom: uom };
+      if (price !== null) return { listPrice: price, desc: desc, uom: uom };
     }
   }
   // Pass 2: stripped
   for (var i = 0; i < allRows.length; i++) {
     var v = (allRows[i][pi] || '').toString().trim().toUpperCase().replace(/[-\/\s]/g, '');
     if (v === keyStripped) {
-      var price = parseFloat((allRows[i][pb1i] || '').toString().replace(/[^0-9.]/g, ''));
+      var price = priceFromRow(allRows[i]);
       var desc = (di >= 0 && di !== undefined) ? (allRows[i][di] || '').toString().trim() : '';
       var uom = ui >= 0 ? (allRows[i][ui] || '').toString().trim() : '';
-      if (!isNaN(price) && price > 0) return { listPrice: price, desc: desc, uom: uom };
+      if (price !== null) return { listPrice: price, desc: desc, uom: uom };
     }
   }
   return null;
