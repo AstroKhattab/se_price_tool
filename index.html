@@ -5320,12 +5320,32 @@ function autoDetectGMIMapping(tier, rawHeaders) {
 // REWRITTEN LOOKUP FUNCTIONS — use colMapping exclusively
 // ═══════════════════════════════════════════════════════
 
-// Prioritised list of price-column indices: the user-mapped column first,
-// then fallback price columns detected from the headers that share the SAME
-// GST basis (so calcOneLine's incl/excl normalisation stays correct). Some
-// product ranges (e.g. EV chargers) leave the primary mapped column blank but
-// still carry a Wholesale / Price-Break price — without this they'd wrongly
-// read as "NOT FOUND" even though the product exists in the price file.
+// All columns that may hold the part code. A Schneider price file stores the
+// SAME item under several columns — "Customer Cat No" (often WITHOUT the colour
+// suffix, e.g. RJ45SMA6C), plus "Customer Item No" and "Material Reference"
+// (the FULL code, e.g. RJ45SMA6C-WE). Matching against only ONE mapped column
+// is why colour-coded parts read as NOT FOUND. We match against all of them.
+function _idColCandidates() {
+  var cands = [];
+  if (colMapping.partCol >= 0) cands.push(colMapping.partCol);
+  if (colMap['part_number'] != null && cands.indexOf(colMap['part_number']) === -1) cands.push(colMap['part_number']);
+  var hLow = (headers || []).map(function(h){ return (h||'').toString().toLowerCase(); });
+  var hints = ['customer item','material reference','material ref','customer cat no',
+               'cust cat no','part number','part no','item no','catalogue','cat no'];
+  for (var k = 0; k < hints.length; k++) {
+    for (var i = 0; i < hLow.length; i++) {
+      if (cands.indexOf(i) === -1 && hLow[i].indexOf(hints[k]) !== -1) cands.push(i);
+    }
+  }
+  return cands;
+}
+
+// Prioritised list of price-column indices used for the SCREEN (list) price:
+// the user-mapped column first, then real list-price columns detected from the
+// headers, all sharing the SAME GST basis (so calcOneLine's incl/excl
+// normalisation stays correct). Some ranges (EV chargers, data parts) leave
+// certain price columns blank but still carry a Wholesale / Price-Break price,
+// so we fall through instead of declaring the product NOT FOUND.
 function _priceColCandidates(primaryCol) {
   var cands = [];
   if (primaryCol >= 0) cands.push(primaryCol);
@@ -5335,67 +5355,67 @@ function _priceColCandidates(primaryCol) {
     for (var i = 0; i < hLow.length; i++) {
       if (cands.indexOf(i) !== -1) continue;
       var h = hLow[i];
-      // only same-GST-basis columns, and never RRP/ARRP or discount/qty columns
       if (gstBasis === 'incl' && h.indexOf('incl') === -1) continue;
       if (gstBasis === 'excl' && h.indexOf('excl') === -1) continue;
-      if (h.indexOf('rrp') !== -1 || h.indexOf('discount') !== -1 || h.indexOf('qty') !== -1) continue;
+      if (h.indexOf('discount') !== -1 || h.indexOf('qty') !== -1) continue;
       if (pred(h)) cands.push(i);
     }
   }
-  add(function(h){ return h.indexOf('price break 1') !== -1 && h.indexOf('cost') !== -1; });
+  // Prefer a true list/screen price (Wholesale List) so the discount is meaningful,
+  // then the customer Price-Break cost, then RRP, then any remaining price column.
   add(function(h){ return h.indexOf('wholesale') !== -1 && h.indexOf('price') !== -1; });
+  add(function(h){ return h.indexOf('price break 1') !== -1 && h.indexOf('cost') !== -1; });
+  add(function(h){ return h.indexOf('rrp') !== -1; });
   add(function(h){ return h.indexOf('price') !== -1 || h.indexOf('cost') !== -1; });
   return cands;
+}
+
+function _priceFromRow(row, priceCols) {
+  for (var c = 0; c < priceCols.length; c++) {
+    var p = parseFloat((row[priceCols[c]] || '').toString().replace(/[^0-9.]/g, ''));
+    if (!isNaN(p) && p > 0) return p;
+  }
+  return null;
 }
 
 function lookupPartExact(partNum) {
   if (!allRows || !allRows.length) return null;
   if (!partNum || !partNum.trim()) return null;
 
-  var pi = colMapping.partCol >= 0 ? colMapping.partCol : colMap['part_number'];
   var pb1i = colMapping.listPriceCol >= 0 ? colMapping.listPriceCol : -1;
   var di = colMapping.descCol >= 0 ? colMapping.descCol : colMap['description'];
   var ui = (function(){ for(var h=0;h<headers.length;h++){ var x=(headers[h]||'').toString().toLowerCase().trim(); if(x==='uom'||x==='unit measure'||x==='unit of measure') return h; } return -1; })();
 
-  if (pi === undefined || pi === null || pi < 0) {
-    console.warn('[lookup] partCol not mapped. colMapping=', colMapping);
-    return null;
-  }
-  if (pb1i < 0) {
-    console.warn('[lookup] listPriceCol not mapped. colMapping=', colMapping);
-    return null;
-  }
-
+  var idCols = _idColCandidates();
+  if (!idCols.length) { console.warn('[lookup] no part-code columns detected'); return null; }
   var priceCols = _priceColCandidates(pb1i);
-  // First valid positive price across the mapped column then same-GST fallbacks.
-  function priceFromRow(row) {
-    for (var c = 0; c < priceCols.length; c++) {
-      var p = parseFloat((row[priceCols[c]] || '').toString().replace(/[^0-9.]/g, ''));
-      if (!isNaN(p) && p > 0) return p;
-    }
-    return null;
+
+  function build(row) {
+    var price = _priceFromRow(row, priceCols);
+    if (price === null) return null;
+    return {
+      listPrice: price,
+      desc: (di >= 0 && di != null) ? (row[di] || '').toString().trim() : '',
+      uom: ui >= 0 ? (row[ui] || '').toString().trim() : ''
+    };
   }
 
   var key = partNum.trim().toUpperCase();
   var keyStripped = key.replace(/[-\/\s]/g, '');
 
-  for (var i = 0; i < allRows.length; i++) {
-    var v = (allRows[i][pi] || '').toString().trim().toUpperCase();
-    if (v === key) {
-      var price = priceFromRow(allRows[i]);
-      var desc = (di >= 0 && di !== undefined) ? (allRows[i][di] || '').toString().trim() : '';
-      var uom = ui >= 0 ? (allRows[i][ui] || '').toString().trim() : '';
-      if (price !== null) return { listPrice: price, desc: desc, uom: uom };
-    }
-  }
-  // Pass 2: stripped
-  for (var i = 0; i < allRows.length; i++) {
-    var v = (allRows[i][pi] || '').toString().trim().toUpperCase().replace(/[-\/\s]/g, '');
-    if (v === keyStripped) {
-      var price = priceFromRow(allRows[i]);
-      var desc = (di >= 0 && di !== undefined) ? (allRows[i][di] || '').toString().trim() : '';
-      var uom = ui >= 0 ? (allRows[i][ui] || '').toString().trim() : '';
-      if (price !== null) return { listPrice: price, desc: desc, uom: uom };
+  // Pass 1: exact match on any identifier column. Pass 2: match ignoring
+  // dashes/slashes/spaces (handles 2031/45-WE vs 2031-45-WE vs 203145WE).
+  for (var pass = 0; pass < 2; pass++) {
+    var target = pass === 0 ? key : keyStripped;
+    for (var i = 0; i < allRows.length; i++) {
+      for (var c = 0; c < idCols.length; c++) {
+        var raw = (allRows[i][idCols[c]] || '').toString().trim().toUpperCase();
+        var v = pass === 0 ? raw : raw.replace(/[-\/\s]/g, '');
+        if (v && v === target) {
+          var hit = build(allRows[i]);
+          if (hit) return hit;
+        }
+      }
     }
   }
   return null;
