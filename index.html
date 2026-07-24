@@ -838,7 +838,7 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
       <div class="auz" id="adm-auz" onclick="trigAdmUpload()">
         <div class="auz-icon">⬆️</div>
         <div class="auz-title" id="auz-title">Upload your Price File</div>
-        <div class="auz-sub">Supports <strong>.xlsx</strong>, <strong>.xls</strong>, <strong>.csv</strong><br>Stored locally — never leaves your device</div>
+        <div class="auz-sub">Supports <strong>.xlsx</strong>, <strong>.xls</strong>, <strong>.csv</strong><br>Saved locally and securely synced to all signed-in devices</div>
         <button class="btn btn-green" onclick="event.stopPropagation();trigAdmUpload()">Choose File</button>
         <input type="file" id="adm-file-in" accept=".xlsx,.xls,.csv" onchange="handleAdmFile(event)" style="display:none">
       </div>
@@ -1236,8 +1236,8 @@ const dbAll=(s)=>new Promise((res,rej)=>{const tx=db.transaction(s,'readonly');c
 // Cloud-synced wrappers: every read hits the fast local cache; every write
 // goes to the local cache AND is pushed to Supabase (queued when offline).
 const dbGet=dbGetRaw;
-async function dbPut(s,k,v){ await dbPutRaw(s,k,v); cloudPut(s,k,v); }
-async function dbDel(s,k){ await dbDelRaw(s,k); cloudDel(s,k); }
+async function dbPut(s,k,v){ await dbPutRaw(s,k,v); return await cloudPut(s,k,v); }
+async function dbDel(s,k){ await dbDelRaw(s,k); return await cloudDel(s,k); }
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -1320,7 +1320,7 @@ async function gzWrap(json){
 }
 async function gzUnwrap(v){
   if(!v||v.__gz!==1) return v;
-  if(typeof DecompressionStream==='undefined') return v;
+  if(typeof DecompressionStream==='undefined') throw new Error('This browser cannot unpack the synced price file');
   var bin=atob(v.b64), bytes=new Uint8Array(bin.length);
   for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
   var ds=new DecompressionStream('gzip');
@@ -1331,13 +1331,18 @@ async function gzUnwrap(v){
 
 // ── Cloud write-through with offline queue ────────────
 async function cloudPut(store,key,val){
-  if(!sb||!sbUser) return;
+  if(!sb||!sbUser) return false;
   try{
     // Compress big payloads (Supabase rejects multi-MB rows)
     var stored=val;
-    try{ var js=JSON.stringify(val); if(js && js.length>300000){ var wrapped=await gzWrap(js); if(wrapped) stored=wrapped; } }catch(e){}
+    var js=JSON.stringify(val);
+    if(js && js.length>300000){
+      var wrapped=await gzWrap(js);
+      if(!wrapped) throw new Error('This browser cannot compress the price file for syncing');
+      stored=wrapped;
+    }
     if(isSharedKey(store,key)){
-      if(!isAdmin) return; // RLS would reject anyway
+      if(!isAdmin) return false; // RLS would reject anyway
       const {error}=await sb.from('shared_kv').upsert({store:store,key:String(key),val:stored,updated_at:new Date().toISOString()});
       if(error) throw error;
     }else{
@@ -1345,22 +1350,27 @@ async function cloudPut(store,key,val){
       if(error) throw error;
     }
     await removePending(store,key);
+    return true;
   }catch(e){
     console.warn('cloudPut queued (offline?):',store,key,e.message||e);
     await addPending(store,key);
-    updateSyncBadge();
+    await updateSyncBadge();
+    return false;
   }
 }
 async function cloudDel(store,key){
-  if(!sb||!sbUser) return;
+  if(!sb||!sbUser) return false;
   try{
     if(isSharedKey(store,key)){
-      if(!isAdmin) return;
-      await sb.from('shared_kv').delete().match({store:store,key:String(key)});
+      if(!isAdmin) return false;
+      const {error}=await sb.from('shared_kv').delete().match({store:store,key:String(key)});
+      if(error) throw error;
     }else{
-      await sb.from('user_kv').delete().match({owner_id:sbUser.id,store:store,key:String(key)});
+      const {error}=await sb.from('user_kv').delete().match({owner_id:sbUser.id,store:store,key:String(key)});
+      if(error) throw error;
     }
-  }catch(e){ console.warn('cloudDel failed:',e); }
+    return true;
+  }catch(e){ console.warn('cloudDel failed:',e); return false; }
 }
 
 // Pending (unsynced) key queue — persisted so nothing is lost across reloads
@@ -1384,6 +1394,20 @@ async function updateSyncBadge(){
 }
 
 // ── Boot sync: pull cloud data into the local cache ───
+function validateSharedValue(store,key,val){
+  if(store==='priceData' && key==='current'){
+    if(!val || !Array.isArray(val.hdrs) || !val.hdrs.length || !Array.isArray(val.rows) || !val.rows.length){
+      throw new Error('The synced price file is incomplete');
+    }
+  }
+  if(store==='metadata' && key==='current'){
+    if(!val || !val.fname || !Number.isFinite(Number(val.rows)) || Number(val.rows)<=0){
+      throw new Error('The synced price-file details are incomplete');
+    }
+  }
+  return val;
+}
+
 async function syncFromCloud(){
   if(!sb||!sbUser) return;
   try{
@@ -1394,16 +1418,31 @@ async function syncFromCloud(){
     if(mErr) throw mErr;
     const newTs={};
     const stale=[];
-    (meta||[]).forEach(r=>{
+    for(const r of (meta||[])){
       const k=r.store+'/'+r.key;
       newTs[k]=r.updated_at;
-      if(localTs[k]!==r.updated_at) stale.push(r);
-    });
-    // Fetch stale rows in batches
+      var needsFetch=localTs[k]!==r.updated_at;
+      if(!needsFetch){
+        // A prior failed download could have recorded the timestamp without
+        // storing usable data. Never trust the timestamp alone.
+        try{
+          var cached=await dbGetRaw(r.store,maybeNum(r.store,r.key));
+          if(cached===undefined) needsFetch=true;
+          else validateSharedValue(r.store,r.key,cached);
+        }catch(e){ needsFetch=true; }
+      }
+      if(needsFetch) stale.push(r);
+    }
+    // Download and validate every changed shared row before replacing any
+    // local values. A partial sync must never destroy a working price list.
+    const fetched=[];
     for(const r of stale){
       const {data,error}=await sb.from('shared_kv').select('val').match({store:r.store,key:r.key}).single();
-      if(!error&&data){ await dbPutRaw(r.store,maybeNum(r.store,r.key), await gzUnwrap(data.val)); }
+      if(error||!data) throw new Error('Could not download '+r.store+'/'+r.key);
+      const val=validateSharedValue(r.store,r.key,await gzUnwrap(data.val));
+      fetched.push({store:r.store,key:r.key,val:val});
     }
+    for(const r of fetched){ await dbPutRaw(r.store,maybeNum(r.store,r.key),r.val); }
     await dbPutRaw('settings','_shared_ts',newTs);
     // Remove shared rows deleted on the server
     for(const k of Object.keys(localTs)){ if(!newTs[k]){ const ix=k.indexOf('/'); try{ await dbDelRaw(k.slice(0,ix),maybeNum(k.slice(0,ix),k.slice(ix+1))); }catch(e){} } }
@@ -1668,29 +1707,55 @@ function handleAdmFile(e){
   else{r.onload=ev=>parseStore(ev.target.result,f.name,'xlsx');r.readAsArrayBuffer(f)}
 }
 
-function parseStore(raw,fname,type){
+function findPriceHeader(data){
+  var best=null;
+  for(var i=0;i<Math.min(60,data.length);i++){
+    var cells=(data[i]||[]).map(function(c){return (c||'').toString().trim().toLowerCase();});
+    var hasDesc=cells.some(function(c){return c.indexOf('description')!==-1||c==='product name';});
+    var hasPart=cells.some(function(c){return c.indexOf('customer cat')!==-1||c.indexOf('customer item')!==-1||c.indexOf('material reference')!==-1||c.indexOf('part number')!==-1||c==='sku';});
+    var hasPrice=cells.some(function(c){return c.indexOf('price')!==-1||c.indexOf('customer cost')!==-1||c.indexOf('rrp')!==-1;});
+    var score=(hasDesc?5:0)+(hasPart?5:0)+(hasPrice?5:0)+cells.filter(function(c){return c!=='';}).length/100;
+    if(hasDesc&&hasPart&&hasPrice&&(!best||score>best.score)) best={hRow:i,score:score};
+  }
+  return best;
+}
+
+function readPriceTable(raw,type){
+  if(type==='csv'){
+    var csvData=parseCSVRaw(raw), csvHit=findPriceHeader(csvData);
+    if(!csvHit) throw new Error('Could not find the product, description and price headings');
+    return {data:csvData,hRow:csvHit.hRow};
+  }
+  var wb=XLSX.read(raw,{type:'array'}), best=null;
+  wb.SheetNames.forEach(function(name){
+    var data=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:''});
+    var hit=findPriceHeader(data);
+    if(hit&&(!best||hit.score>best.score)) best={data:data,hRow:hit.hRow,score:hit.score,sheet:name};
+  });
+  if(!best) throw new Error('Could not find a worksheet with product, description and price headings');
+  return best;
+}
+
+async function parseStore(raw,fname,type){
   try{
-    let data;
-    if(type==='csv'){data=parseCSVRaw(raw)}
-    else{const wb=XLSX.read(raw,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];data=XLSX.utils.sheet_to_json(ws,{header:1,defval:''})}
-    let hRow=0;
-    for(let i=0;i<Math.min(15,data.length);i++){
-      const r=data[i].map(c=>(c||'').toString().toLowerCase());
-      if(r.some(c=>c.includes('description')||c.includes('prefix')||c.includes('part')||c.includes('colour'))){hRow=i;break}
-    }
+    const parsed=readPriceTable(raw,type), data=parsed.data, hRow=parsed.hRow;
     const hdrs=data[hRow].map(h=>(h||'').toString().trim());
     const rows=data.slice(hRow+1).filter(r=>r.some(c=>(c||'').toString().trim()!==''));
+    if(rows.length<10) throw new Error('The selected worksheet contains too few product rows');
     const meta={fname,rows:rows.length,cols:hdrs.length,loadedAt:new Date().toISOString(),hdrs};
-    dbPut('priceData','current',{hdrs,rows})
-    .then(()=>dbPut('metadata','current',meta))
-    .then(()=>dbAll('history'))
-    .then(hist=>{
-      const sorted=hist.sort((a,b)=>b.key-a.key);
-      const ps=[dbPut('history',Date.now(),meta)];
-      if(sorted.length>=5) ps.push(dbDel('history',sorted[sorted.length-1].key));
-      return Promise.all(ps);
-    })
-    .then(()=>{stopLoad();loadFromDB();updateAdminUI();audit('dataset_uploaded',{file:fname,rows:rows.length,type:'price file'});toast('✓ '+rows.length.toLocaleString()+' products stored');setTimeout(()=>switchTab('search'),700)});
+    const priceSynced=await dbPut('priceData','current',{hdrs,rows});
+    const metaSynced=await dbPut('metadata','current',meta);
+    const hist=await dbAll('history');
+    const sorted=hist.sort((a,b)=>b.key-a.key);
+    await dbPut('history',Date.now(),meta);
+    if(sorted.length>=5) await dbDel('history',sorted[sorted.length-1].key);
+    await loadFromDB();
+    await updateAdminUI();
+    audit('dataset_uploaded',{file:fname,rows:rows.length,type:'price file',cloud_synced:!!(priceSynced&&metaSynced)});
+    stopLoad();
+    if(priceSynced&&metaSynced) toast('✓ '+rows.length.toLocaleString()+' products loaded and synced to all devices',4500);
+    else toast('⚠️ Products loaded on this device; cloud sync is pending',6000);
+    setTimeout(()=>switchTab('search'),700);
   }catch(err){stopLoad();toast('⚠️ Could not read that file — is it a valid Excel/CSV? ('+err.message+')',5000)}
 }
 
@@ -1709,6 +1774,15 @@ async function loadFromDB(){
   const stored=await dbGet('priceData','current');
   const meta=await dbGet('metadata','current');
   if(!stored||!meta){showNFB();return;}
+  try{
+    validateSharedValue('priceData','current',stored);
+    validateSharedValue('metadata','current',meta);
+  }catch(e){
+    console.warn('Local price-file cache is invalid:',e.message||e);
+    showNFB();
+    toast('⚠️ The cached price list is incomplete. Reconnect and reopen the app to repair it.',5500);
+    return;
+  }
   headers=stored.hdrs; allRows=stored.rows;
   const hL=headers.map(h=>h.toLowerCase());
   colMap={};
