@@ -28,10 +28,12 @@ Frontend hosted on GitHub Pages; data and logins on Supabase (free tier).
 Open the link in Safari → Share button → **Add to Home Screen**.
 It installs like an app and works offline with the last-synced data.
 
-## Configuration
-`index.html` contains two placeholders filled at deploy time:
-- `__SUPABASE_URL__` — your Supabase project URL
-- `__SUPABASE_ANON_KEY__` — the project's anon/public key (safe to publish;
-  all access is enforced by Row Level Security)
+## Security and configuration
+`index.html` contains the Supabase project URL and anon/public key. The public
+key is expected to be visible in a browser application; it is not a privileged
+service-role key. Access is enforced by Row Level Security.
 
-Database schema: `../supabase/schema.sql` (run once in the Supabase SQL Editor).
+New Auth signups must remain unapproved (`profiles.disabled = true`) until an
+existing admin enables them. Shared prices are readable only by an approved,
+active profile. For an existing database, run
+`supabase/security_hardening.sql` once in the Supabase SQL Editor.

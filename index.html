@@ -1077,7 +1077,7 @@ td.c-stock span{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;b
         <div class="acard-title">➕ Create User</div>
         <div class="bset-row"><div class="bset-lbl">Email</div><div class="bset-ctrl"><input type="email" class="bset-input" id="nu-email" placeholder="friend@example.com" autocomplete="off"></div></div>
         <div class="bset-row"><div class="bset-lbl">Display Name</div><div class="bset-ctrl"><input class="bset-input" id="nu-name" placeholder="e.g. Ahmed" autocomplete="off"></div></div>
-        <div class="bset-row"><div class="bset-lbl">Temporary Password</div><div class="bset-ctrl"><input class="bset-input" id="nu-password" placeholder="Min 8 characters — they can change it later" autocomplete="off"></div></div>
+        <div class="bset-row"><div class="bset-lbl">Temporary Password</div><div class="bset-ctrl"><input type="password" class="bset-input" id="nu-password" placeholder="Min 8 characters — they can change it later" autocomplete="new-password"></div></div>
         <div id="nu-msg" style="font-size:12px;margin-top:6px;min-height:16px"></div>
         <button class="btn btn-green btn-sm" style="margin-top:10px;min-height:44px" onclick="adminCreateUser()">➕ Create Account</button>
         <p style="font-size:11px;color:var(--text4);margin-top:10px;line-height:1.6">Send them the app link + their email and temporary password. They can change the password in Admin-free Settings (Access tab is visible to every user for their own password).</p>
@@ -1496,10 +1496,12 @@ async function postLogin(session){
     sbProfile=data||null;
   }catch(e){ sbProfile=null; }
   isAdmin = !!(sbProfile && sbProfile.role==='admin');
-  isUser = !isAdmin;
-  if(sbProfile && sbProfile.disabled){
+  isUser = !!(sbProfile && !isAdmin);
+  // Fail closed: authentication alone does not grant app access. A profile
+  // must exist and be explicitly active.
+  if(!sbProfile || sbProfile.disabled){
     await sb.auth.signOut();
-    document.getElementById('pw-err').textContent='This account has been disabled.';
+    document.getElementById('pw-err').textContent='This account is not approved or has been disabled.';
     document.getElementById('pw-ov').classList.add('on');
     return;
   }
@@ -1568,6 +1570,7 @@ async function changePW(){
 // ADMIN: USER MANAGEMENT + LOG BOOK
 // ══════════════════════════════════════════════════════
 async function adminCreateUser(){
+  if(!isAdmin){ toast('Admin access only'); return; }
   const email=document.getElementById('nu-email').value.trim();
   const name=document.getElementById('nu-name').value.trim();
   const pw=document.getElementById('nu-password').value;
@@ -1580,6 +1583,20 @@ async function adminCreateUser(){
   msg.style.color='var(--text3)'; msg.textContent='Creating…';
   const {data,error}=await aux.auth.signUp({email:email,password:pw,options:{data:{display_name:name||email.split('@')[0]}}});
   if(error){ msg.style.color='var(--red)'; msg.textContent=error.message; return; }
+  if(!data||!data.user){ msg.style.color='var(--red)'; msg.textContent='Account creation did not return a user record'; return; }
+  // Database security creates every new profile disabled. Only the signed-in
+  // admin client can approve it after the Auth account has been created.
+  const {data:approvedProfile,error:approvalError}=await sb.from('profiles')
+    .update({disabled:false,display_name:name||email.split('@')[0]})
+    .eq('id',data.user.id)
+    .select('id')
+    .maybeSingle();
+  if(approvalError||!approvedProfile){
+    msg.style.color='var(--red)';
+    msg.textContent='Account created but approval failed. Enable it in Users before sharing the login.';
+    setTimeout(loadUsersList,800);
+    return;
+  }
   msg.style.color='var(--accent-dark)'; msg.textContent='✓ Account created for '+email+' — send them the link and their password';
   audit('user_created',{email:email,name:name});
   ['nu-email','nu-name','nu-password'].forEach(id=>document.getElementById(id).value='');
@@ -3823,7 +3840,7 @@ async function loadSavedGMI(){
       <div class="exp-wrap">
         <button class="btn btn-green btn-sm" id="proj-export-btn" onclick="toggleProjExport(event)">⬇ Export ▾</button>
         <div class="exp-dd" id="proj-exp-dd">
-          <button class="exp-opt" onclick="projExport('xlsxtemplate')"><span>🧾</span>Excel — quotes-team template</button>
+          <button class="exp-opt" onclick="projExport('xlsx')"><span>🧾</span>Excel quote</button>
           <button class="exp-opt" onclick="projExport('email')"><span>✉️</span>Copy email table</button>
         </div>
       </div>
@@ -3900,7 +3917,7 @@ async function loadSavedGMI(){
       <div class="proj-results-actions">
         <button class="btn btn-ghost btn-sm" onclick="addQuoteRow()">+ Add Row</button>
         <button class="btn btn-ghost btn-sm" onclick="projExport('email')">✉️ Copy Email</button>
-        <button class="btn btn-green btn-sm" onclick="projExport('xlsxtemplate')">🧾 Excel</button>
+        <button class="btn btn-green btn-sm" onclick="projExport('xlsx')">🧾 Excel</button>
       </div>
     </div>
     <div class="proj-table-scroll">
@@ -4596,7 +4613,7 @@ function renderQuoteList(){
     var qid=tr.getAttribute('data-qid'), qname=tr.getAttribute('data-qname');
     var q=allSavedQuotes.find(function(x){return x.id===qid;}); if(!q) return;
     if(e.target.closest('.ql-open')||e.target.closest('.ql-view')) { openQuoteForm(qid); }
-    else if(e.target.closest('.ql-dl'))  { quoteRowExport(q,'xlsxtemplate'); }
+    else if(e.target.closest('.ql-dl'))  { quoteRowExport(q,'xlsx'); }
     else if(e.target.closest('.ql-send')){ quoteRowExport(q,'email'); }
     else if(e.target.closest('.ql-del')) { if(confirm('Delete "'+qname+'"? This cannot be undone.')) deleteQuote(qid).then(function(){renderQuoteList();}); }
   };
@@ -4860,7 +4877,7 @@ function renderCAPDashboard(){
           '<span style="font-size:9px;font-weight:700;color:var(--red);background:#fee2e2;padding:1px 5px;border-radius:4px">OVERDUE</span>';
         return '<div onclick="switchTab(\'cap\')" style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--bg2);border-radius:var(--r-sm);cursor:pointer;border-left:3px solid '+(item.status==='never'?'var(--text4)':'var(--red)')+'">'+
           '<div><div style="font-size:12px;font-weight:600;color:var(--text)">'+escH(c._name)+'</div>'+
-          '<div style="font-size:10px;color:var(--text4)">'+(c._city||'—')+' · Last: '+lastDate+'</div></div>'+
+          '<div style="font-size:10px;color:var(--text4)">'+escH(c._city||'—')+' · Last: '+escH(lastDate)+'</div></div>'+
           badge+'</div>';
       }).join('');
     }

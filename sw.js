@@ -1,6 +1,6 @@
 /* Service worker: cache-first app shell so the tool loads offline after first visit.
    Bump CACHE_VERSION on every deploy to invalidate old caches. */
-const CACHE_VERSION = 'pi-v29';
+const CACHE_VERSION = 'pi-v30';
 const SHELL = [
   './',
   './index.html',
@@ -8,7 +8,6 @@ const SHELL = [
   './vendor/xlsx.min.js',
   './vendor/supabase.js',
   './vendor/exceljs.min.js',
-  './assets/quote_template.xlsx',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png'
